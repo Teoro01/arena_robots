@@ -50,11 +50,7 @@ def _canon_value(value: str) -> str | tuple[float, ...]:
 
 
 def _arm_elements(root: ET.Element) -> dict[tuple[str, str], dict]:
-    return {
-        (el.tag, _norm(el.get("name", ""))): _canon(el)
-        for el in root
-        if el.tag in ("link", "joint") and "arm" in el.get("name", "")
-    }
+    return {(el.tag, _norm(el.get("name", ""))): _canon(el) for el in root if el.tag in ("link", "joint") and "arm" in el.get("name", "")}
 
 
 @pytest.mark.skipif(_XACRO is None, reason="xacro CLI not on PATH; run under the Arena container (bash arena -c pytest)")
@@ -96,10 +92,6 @@ class TestRbvoguiArmCollapseMatchesPlus:
         mine, plus = rendered
 
         def inventory(root: ET.Element) -> set[tuple[str, str]]:
-            return {
-                (sensor.get("name", ""), sensor.get("type", ""))
-                for gz in root.iter("gazebo")
-                for sensor in gz.findall("sensor")
-            }
+            return {(sensor.get("name", ""), sensor.get("type", "")) for gz in root.iter("gazebo") for sensor in gz.findall("sensor")}
 
         assert inventory(mine) == inventory(plus)

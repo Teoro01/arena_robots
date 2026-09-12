@@ -231,6 +231,3 @@ sigma_no_effort: 1.0
         assert captured[4].operating_state == "collision"
     finally:
         node.destroy_node()
-
-
-

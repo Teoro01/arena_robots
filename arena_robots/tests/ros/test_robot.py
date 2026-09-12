@@ -33,7 +33,6 @@ class TestModelParamsDefaults:
         assert mp.z_offset == pytest.approx(0.15)
 
 
-
 class TestModelParamsFromYaml:
     def test_non_dict_root_raises(self, tmp_path: Path):
         from arena_robots.Robot import ModelParams
@@ -54,11 +53,7 @@ class TestModelParamsSensors:
     def test_sensors_valid(self, tmp_path: Path):
         from arena_robots.Robot import ModelParams
 
-        data = {
-            "sensors": [
-                {"name": "laser", "type": "laserscan", "topic": "/scan", "frame": "laser_frame"}
-            ]
-        }
+        data = {"sensors": [{"name": "laser", "type": "laserscan", "topic": "/scan", "frame": "laser_frame"}]}
         mp = ModelParams.from_yaml(_write(tmp_path, data))
         sensors = mp.sensors
         assert len(sensors) == 1
@@ -324,9 +319,7 @@ class TestRobotView:
         assert profile["num_wheels"] == 4
 
 
-
 def _write(tmp_path: Path, data: dict) -> Path:
     path = tmp_path / "model_params.yaml"
     path.write_text(yaml.dump(data))
     return path
-

@@ -67,11 +67,7 @@ def _canonical_urdf(path: Path) -> tuple[frozenset, frozenset, frozenset]:
         )
         for joint in root.iter("joint")
     )
-    sensors = frozenset(
-        (sensor.get("name"), sensor.get("type"), _sensor_key(sensor))
-        for gz in root.iter("gazebo")
-        for sensor in gz.findall("sensor")
-    )
+    sensors = frozenset((sensor.get("name"), sensor.get("type"), _sensor_key(sensor)) for gz in root.iter("gazebo") for sensor in gz.findall("sensor"))
     return links, joints, sensors
 
 

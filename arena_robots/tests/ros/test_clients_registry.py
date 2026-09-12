@@ -25,6 +25,7 @@ def test_goto_pose_is_registered():
 def test_client_task_kind_classvar_matches_registry_key():
     """Convention guard: each client's `task_kind` ClassVar must equal its registry key."""
     from arena_robots.clients import CLIENTS
+
     for key in CLIENTS.keys():
         cls = CLIENTS.get(key)
         assert cls.task_kind == key, f"{cls.__name__}.task_kind={cls.task_kind!r} != registry key {key!r}"

@@ -85,6 +85,7 @@ class TestBringupsRegistry:
     def test_bringup_kind_classvar_matches_registry_key(self):
         """Convention guard: each bringup's `kind` ClassVar must equal its registry key."""
         from arena_robots.bringup import BRINGUPS
+
         for cap, reg in BRINGUPS.items():
             for key in reg.keys():
                 cls = reg.get(key)
@@ -92,6 +93,7 @@ class TestBringupsRegistry:
 
     def test_bringup_meta_attached_on_every_bringup(self):
         from arena_robots.bringup import BRINGUPS, BringupMeta
+
         for reg in BRINGUPS.values():
             for key in reg.keys():
                 cls = reg.get(key)

@@ -115,12 +115,7 @@ def _write_robot_view(tmp_path: Path, name: str = "testbot") -> RobotView:
     robot_dir = tmp_path / "robots" / name
     urdf_dir = robot_dir / "urdf"
     urdf_dir.mkdir(parents=True)
-    (urdf_dir / f"{name}.urdf.xacro").write_text(
-        '<?xml version="1.0"?>\n'
-        f'<robot name="{name}" xmlns:xacro="http://www.ros.org/wiki/xacro">\n'
-        '  <xacro:arg name="prefix" default="robot_"/>\n'
-        "</robot>\n"
-    )
+    (urdf_dir / f"{name}.urdf.xacro").write_text(f'<?xml version="1.0"?>\n<robot name="{name}" xmlns:xacro="http://www.ros.org/wiki/xacro">\n  <xacro:arg name="prefix" default="robot_"/>\n</robot>\n')
     return RobotView(robot_dir)
 
 
@@ -322,9 +317,7 @@ class TestRenderEffectiveSensors:
 
     def test_override_wins_over_default(self, catalog: Catalog):
         rear_laser = _mount("rear_laser", ["lidar"])
-        resolved = ResolvedAssembly(
-            placements=[Placement(type="lidar", variant="sick_s300", mount=rear_laser, overrides={"name": "lidar_rear", "topic": "scan/rear"})]
-        )
+        resolved = ResolvedAssembly(placements=[Placement(type="lidar", variant="sick_s300", mount=rear_laser, overrides={"name": "lidar_rear", "topic": "scan/rear"})])
         sensors = render_effective_sensors(resolved, catalog)
         assert sensors[0].name == "lidar_rear"
         assert sensors[0].topic == "${namespace}/scan/rear"
@@ -524,18 +517,14 @@ class TestRenderEffectiveControl:
         merged, extra = render_effective_control(resolved, RBVOGUI_BASE_CONTROL, catalog)
 
         assert extra == ["arm_controller"]
-        assert merged["controller_manager"]["ros__parameters"]["arm_controller"] == {
-            "type": "joint_trajectory_controller/JointTrajectoryController"
-        }
+        assert merged["controller_manager"]["ros__parameters"]["arm_controller"] == {"type": "joint_trajectory_controller/JointTrajectoryController"}
         assert merged["arm_controller"]["ros__parameters"]["joints"] == [
             "robot_arm_shoulder_pan_joint",
             "robot_arm_shoulder_lift_joint",
         ]
         assert merged["arm_controller"]["ros__parameters"]["state_publish_rate"] == 50.0
         # existing controller_manager entries survive the merge
-        assert merged["controller_manager"]["ros__parameters"]["robotnik_base_controller"] == {
-            "type": "arena_swerve_controller/SwerveController"
-        }
+        assert merged["controller_manager"]["ros__parameters"]["robotnik_base_controller"] == {"type": "arena_swerve_controller/SwerveController"}
         # base_control is not mutated
         assert "arm_controller" not in RBVOGUI_BASE_CONTROL["controller_manager"]["ros__parameters"]
         assert "arm_controller" not in RBVOGUI_BASE_CONTROL

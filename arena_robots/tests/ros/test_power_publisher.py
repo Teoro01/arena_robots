@@ -155,6 +155,3 @@ def test_power_publisher_with_drivetrain_and_rolling_losses() -> None:
         assert abs(node._total_energy_consumed_wh - expected_energy) < 1e-4
     finally:
         node.destroy_node()
-
-
-

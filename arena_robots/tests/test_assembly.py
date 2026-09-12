@@ -328,9 +328,7 @@ class TestAssemblySpecParse:
     def test_parse_accepts_preserves_declared_order(self):
         from arena_robots.assembly import AssemblySpec
 
-        spec = AssemblySpec.parse(
-            {"mounts": {"top": {"parent": "base_link", "xyz": [0, 0, 0], "accepts": ["camera", "lidar", "imu"]}}}
-        )
+        spec = AssemblySpec.parse({"mounts": {"top": {"parent": "base_link", "xyz": [0, 0, 0], "accepts": ["camera", "lidar", "imu"]}}})
         assert spec.mounts["top"].accepts == ("camera", "lidar", "imu")
 
     def test_parse_declaration_order_is_allocation_preference(self):
@@ -364,9 +362,7 @@ class TestAssemblySpecParse:
         spec = AssemblySpec.parse(
             {
                 "mounts": {"rear": {"parent": "base_link", "xyz": [0, 0, 0.2], "accepts": ["lidar"]}},
-                "defaults": {
-                    "lidar": [{"variant": "sick_s300", "mount": "rear", "overrides": {"name": "lidar_rear", "topic": "scan/rear"}}]
-                },
+                "defaults": {"lidar": [{"variant": "sick_s300", "mount": "rear", "overrides": {"name": "lidar_rear", "topic": "scan/rear"}}]},
             }
         )
         assert spec.defaults["lidar"][0].overrides == {"name": "lidar_rear", "topic": "scan/rear"}
@@ -448,9 +444,7 @@ class TestMountFrame:
     def test_frame_defaults_to_none_when_omitted(self):
         from arena_robots.assembly import AssemblySpec
 
-        spec = AssemblySpec.parse(
-            {"mounts": {"top": {"parent": "base_link", "xyz": [0, 0, 0], "accepts": ["lidar"]}}}
-        )
+        spec = AssemblySpec.parse({"mounts": {"top": {"parent": "base_link", "xyz": [0, 0, 0], "accepts": ["lidar"]}}})
         assert spec.mounts["top"].frame is None
 
     def test_frame_field_directly_on_mount(self):

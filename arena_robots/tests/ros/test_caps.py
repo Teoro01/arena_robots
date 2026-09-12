@@ -137,9 +137,7 @@ class TestInstanceSpecs:
 
         caps = tmp_path / "caps"
         caps.mkdir()
-        (caps / "arm.yaml").write_text(
-            yaml.dump({"my_arm": {"base_link": "base", "tip_link": "tip", "chain": ["j1"], "controller": "arm_ctrl"}})
-        )
+        (caps / "arm.yaml").write_text(yaml.dump({"my_arm": {"base_link": "base", "tip_link": "tip", "chain": ["j1"], "controller": "arm_ctrl"}}))
         rc = RobotCaps(caps_dir=caps)
         arms = rc.arm
         assert "my_arm" in arms
@@ -189,9 +187,7 @@ class TestInstanceSpecs:
 
         caps = tmp_path / "caps"
         caps.mkdir()
-        (caps / "gripper.yaml").write_text(
-            yaml.dump({"gripper1": {"arm": "my_arm", "joint": "gripper_joint", "controller": "gripper_ctrl"}})
-        )
+        (caps / "gripper.yaml").write_text(yaml.dump({"gripper1": {"arm": "my_arm", "joint": "gripper_joint", "controller": "gripper_ctrl"}}))
         rc = RobotCaps(caps_dir=caps)
         grippers = rc.gripper
         assert "gripper1" in grippers

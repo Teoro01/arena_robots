@@ -106,9 +106,7 @@ class TestGripperChainsOntoArmTip:
         merged, extra = render_effective_control(resolved, {}, Catalog(root=COMPONENTS_ROOT), prefix="")
         assert {"top_controller", "top_tool_controller"} <= set(extra)
         assert merged["top_tool_controller"]["ros__parameters"]["joint"] == f"top_tool_{KNUCKLE}"
-        assert merged["controller_manager"]["ros__parameters"]["top_tool_controller"] == {
-            "type": "position_controllers/GripperActionController"
-        }
+        assert merged["controller_manager"]["ros__parameters"]["top_tool_controller"] == {"type": "position_controllers/GripperActionController"}
 
     def test_gripper_caps_render_as_gripper_spec(self) -> None:
         from arena_robots.caps import RobotCaps

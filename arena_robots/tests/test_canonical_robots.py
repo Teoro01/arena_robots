@@ -29,9 +29,7 @@ def test_sensor_types_are_canonical(yaml_path: Path) -> None:
         data = yaml.safe_load(f)
     for entry in data.get("sensors", []):
         sensor_type = entry.get("type", "")
-        assert sensor_type in SENSOR_TYPES, (
-            f"{yaml_path}: sensor type {sensor_type!r} is not in SENSOR_TYPES"
-        )
+        assert sensor_type in SENSOR_TYPES, f"{yaml_path}: sensor type {sensor_type!r} is not in SENSOR_TYPES"
 
 
 def test_priority_uniqueness_informational(capsys: pytest.CaptureFixture[str]) -> None:
@@ -43,9 +41,7 @@ def test_priority_uniqueness_informational(capsys: pytest.CaptureFixture[str]) -
             data = yaml.safe_load(f)
         robot_name = yaml_path.parent.name
         is_holonomic = bool(data.get("is_holonomic", False))
-        sensor_types: frozenset[str] = frozenset(
-            str(s.get("type", "")) for s in data.get("sensors", [])
-        )
+        sensor_types: frozenset[str] = frozenset(str(s.get("type", "")) for s in data.get("sensors", []))
         priority = int(data.get("priority", 0))
         sig: Sig = (is_holonomic, sensor_types)
         groups[sig].append((robot_name, priority))
@@ -54,7 +50,4 @@ def test_priority_uniqueness_informational(capsys: pytest.CaptureFixture[str]) -
         max_p = max(p for _, p in entries)
         top = [name for name, p in entries if p == max_p]
         if len(top) > 1:
-            print(
-                f"priority tie: holonomic={sig[0]} sensors={sorted(sig[1])}"
-                f", robots with max priority {max_p}: {sorted(top)}"
-            )
+            print(f"priority tie: holonomic={sig[0]} sensors={sorted(sig[1])}, robots with max priority {max_p}: {sorted(top)}")
