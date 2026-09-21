@@ -444,6 +444,16 @@ class ArmSpec(InstanceSpec):
         return ws if isinstance(ws, dict) else None
 
     @property
+    def joint_limits(self) -> dict[str, dict[str, object]]:
+        mv = self.raw.get("moveit")
+        jl = mv.get("joint_limits")
+        if jl is None:
+            return {}    
+        full = _resolve_find_ref(f"$(find {jl['package']})/{jl['path']}")
+        with open(full) as f:
+            return yaml.safe_load(f) or {}
+
+    @property
     def named_poses(self) -> dict[str, dict[str, float]]:
         """``{pose_name: {joint_name: radians}}``. Empty dict if not declared.
 
