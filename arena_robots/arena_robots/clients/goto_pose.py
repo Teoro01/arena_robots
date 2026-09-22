@@ -31,6 +31,9 @@ class GotoPoseClient(Client):
     async def wait_ready(self) -> None:
         await self._action.ensure()
 
+    SERVER_WAIT_S = 120.0
+    SEND_TIMEOUT_S = 30.0
+
     async def send_goal(self, goal: object) -> object:
         self._done = False
         self._result = None
@@ -38,7 +41,12 @@ class GotoPoseClient(Client):
         self._reason = None
         self._feedback = None
         self._result_future = None
-        self._goal_handle = await self._action.send_goal(goal, feedback_callback=self._on_feedback)
+        if not await self._action.ensure(timeout_sec=self.SERVER_WAIT_S):
+            raise RuntimeError(f"action server {self.action_endpoint()!r} not ready after {self.SERVER_WAIT_S:.0f}s")
+        handle = await self._action.send_goal_timeout(goal, timeout_sec=self.SEND_TIMEOUT_S, feedback_callback=self._on_feedback)
+        if handle is None:
+            raise RuntimeError(f"send_goal to {self.action_endpoint()!r} got no response in {self.SEND_TIMEOUT_S:.0f}s")
+        self._goal_handle = handle
         self._result_future = self._goal_handle.get_result_async()
         self._result_future.add_done_callback(self._on_result)
         return self._goal_handle
