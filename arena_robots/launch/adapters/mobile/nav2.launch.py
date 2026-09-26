@@ -131,8 +131,6 @@ def generate_launch_description():
         is_planner_only = planner_only.substitution.perform(context).lower() == 'true'
         remappings = [
             ('map_server', '/map_server'),
-            ('/tf', '/tf'),
-            ('/tf_static', '/tf_static'),
         ]
         if tgn:
             remappings.append(('map', PathJoinSubstitution([tgn, 'map'])))
