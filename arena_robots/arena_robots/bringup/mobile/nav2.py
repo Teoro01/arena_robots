@@ -45,6 +45,7 @@ class Nav2Bringup(Bringup):
         task_generator_node: str = "",
         env_namespace: str = "",
         sensors: list[SensorSpec] | None = None,
+        params_overlay: str = "",
         **_: object,
     ) -> list[Action]:
         launch_file = PathJoinSubstitution(
@@ -67,6 +68,7 @@ class Nav2Bringup(Bringup):
             "train_mode": str(train_mode).lower(),
             "task_generator_node": task_generator_node,
             "env_namespace": env_namespace,
+            "params_overlay": params_overlay,
         }
         if sensors is not None:
             launch_arguments["sensors_json"] = json.dumps(
