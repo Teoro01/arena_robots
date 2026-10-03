@@ -36,4 +36,4 @@ joint_group_position_controller:
     # CHAMP streams a fresh single-point JointTrajectory every gait tick, so accept
     # partial goals and replace in-flight trajectories without an error.
     allow_partial_joints_goal: true
-    open_loop_control: false
+    open_loop_control: true
