@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from arena_robots.bringup.mobile.rosnav_rl import RosnavRlBringup
 
 _ARRIVAL_POLL_S = 0.2
-_DEFAULT_TOLERANCE_M = 1.0  # matches task_generator's goal_tolerance_radius default
+_DEFAULT_TOLERANCE_M = 1.0  # matches task_generator's task.episode.goto_pose.tolerance.radius default
 _PASSTHROUGH_BEAT_PERIOD = 0.25
 
 
