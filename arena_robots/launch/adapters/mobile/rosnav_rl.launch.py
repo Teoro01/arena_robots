@@ -15,7 +15,7 @@ def generate_launch_description():
     use_sim_time = LaunchArgument("use_sim_time")
     frame = LaunchArgument("frame")
     base_frame = LaunchArgument("base_frame")
-    LaunchArgument("task_generator_node", default_value="")
+    task_generator_node = LaunchArgument("task_generator_node", default_value="")
     agent = LaunchArgument("agent")
     node_name = LaunchArgument("node_name", default_value="rosnav_rl_inference")
     control_rate = LaunchArgument("control_rate", default_value="10.0")
@@ -34,6 +34,7 @@ def generate_launch_description():
             {
                 **agent.str_param,
                 **namespace.str_param,
+                **task_generator_node.str_param,
                 **frame.str_param,
                 **base_frame.str_param,
                 **use_sim_time.param(bool),
