@@ -3,7 +3,7 @@ sensor_frame: lidar_link
 radius: 0.267
 is_holonomic: false
 
-footprint: [[0.21, 0.155], [0.21, -0.155], [-0.21, -0.155], [-0.21, 0.155]]
+footprint: [[0.229, 0.2078], [0.229, -0.2078], [-0.229, -0.2078], [-0.229, 0.2078]]
 
 polygons_dict:
   StopPolygon:
