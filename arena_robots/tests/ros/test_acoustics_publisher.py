@@ -181,7 +181,7 @@ sigma_no_effort: 1.0
 
     try:
         captured = []
-        node._acoustics_pub.publish = lambda m: captured.append(m)
+        node._acoustics_pub.publish = lambda build: captured.append(build())
 
         def _make_js(sec: int) -> JointState:
             js = JointState()

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import rclpy
 import yaml
+from arena_rclpy_mixins.lazy import LazyPublisher
 from arena_rclpy_mixins.spin import spin_node
 from arena_robots_msgs.msg import Acoustics, CollisionEvents
 from rclpy.node import Node
@@ -63,7 +64,7 @@ class AcousticsPublisher(Node):
         self._collision_impulse_pending: bool = False
 
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
-        self._acoustics_pub = self.create_publisher(Acoustics, topic_param, qos)
+        self._acoustics_pub: LazyPublisher[Acoustics] = LazyPublisher(self.create_publisher(Acoustics, topic_param, qos))
 
         self.create_subscription(JointState, "joint_states", self._on_joint_state, qos)
         self.create_subscription(CollisionEvents, "collision_events", self._on_collision_events, qos)
@@ -124,45 +125,49 @@ class AcousticsPublisher(Node):
 
         p_drive = self._ema_p_drive
 
-        p_total = self._P_base + p_drive
-        l_1m = 10.0 * math.log10(p_total) if p_total > 0.0 else 0.0
-
-        l_base = self._L_base_0
-        l_drivetrain = 10.0 * math.log10(p_drive) if p_drive > 1e-12 else 0.0
-
-        effort_unc = 0.0 if has_effort else (self._sigma_no_effort**2)
-        sigma_dyn = self._sigma_dynamic * math.log(1.0 + (omega_eq / max(self._omega_ref, 1e-3)))
-        sigma_total = min(2.5, math.sqrt(self._sigma_base**2 + sigma_dyn**2 + effort_unc))
-
-        validity_flags = 0
-        if not has_effort:
-            validity_flags |= Acoustics.FLAG_NO_EFFORT
-        if not has_velocity:
-            validity_flags |= Acoustics.FLAG_NO_VELOCITY
-
         # Positive-flank collision acoustic impulse (fires on impact frame only)
         is_impact = self._collision_impulse_pending
-        if is_impact:
-            self._collision_impulse_pending = False
-            l_1m = max(l_1m, self.COLLISION_IMPULSE_DBA)
-            operating_state = "collision"
-        elif lambda_omega > 0.0:
-            operating_state = "driving"
-        else:
-            operating_state = "idle"
+        self._collision_impulse_pending = False
 
-        out_msg = Acoustics()
-        out_msg.header = msg.header
-        out_msg.total_level_af_dba = float(l_1m)
-        out_msg.total_level_zf_db = float("nan")  # Broadband proxy only supports A-weighted dBA
-        out_msg.baseline_level_dba = float(l_base)
-        out_msg.drivetrain_level_dba = float(l_drivetrain)
-        out_msg.uncertainty_1sigma_dba = float(sigma_total)
-        out_msg.validity_flags = int(validity_flags)
-        out_msg.operating_state = operating_state
-        out_msg.calibration_status = self._calibration_status
+        def acoustics() -> Acoustics:
+            p_total = self._P_base + p_drive
+            l_1m = 10.0 * math.log10(p_total) if p_total > 0.0 else 0.0
 
-        self._acoustics_pub.publish(out_msg)
+            l_base = self._L_base_0
+            l_drivetrain = 10.0 * math.log10(p_drive) if p_drive > 1e-12 else 0.0
+
+            effort_unc = 0.0 if has_effort else (self._sigma_no_effort**2)
+            sigma_dyn = self._sigma_dynamic * math.log(1.0 + (omega_eq / max(self._omega_ref, 1e-3)))
+            sigma_total = min(2.5, math.sqrt(self._sigma_base**2 + sigma_dyn**2 + effort_unc))
+
+            validity_flags = 0
+            if not has_effort:
+                validity_flags |= Acoustics.FLAG_NO_EFFORT
+            if not has_velocity:
+                validity_flags |= Acoustics.FLAG_NO_VELOCITY
+
+            if is_impact:
+                l_1m = max(l_1m, self.COLLISION_IMPULSE_DBA)
+                operating_state = "collision"
+            elif lambda_omega > 0.0:
+                operating_state = "driving"
+            else:
+                operating_state = "idle"
+
+            out_msg = Acoustics()
+            out_msg.header = msg.header
+            out_msg.total_level_af_dba = float(l_1m)
+            out_msg.total_level_zf_db = float("nan")  # Broadband proxy only supports A-weighted dBA
+            out_msg.baseline_level_dba = float(l_base)
+            out_msg.drivetrain_level_dba = float(l_drivetrain)
+            out_msg.uncertainty_1sigma_dba = float(sigma_total)
+            out_msg.validity_flags = int(validity_flags)
+            out_msg.operating_state = operating_state
+            out_msg.calibration_status = self._calibration_status
+
+            return out_msg
+
+        self._acoustics_pub.publish(acoustics)
 
 
 def main() -> None:

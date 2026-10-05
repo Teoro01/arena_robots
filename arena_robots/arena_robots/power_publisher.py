@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import rclpy
+from arena_rclpy_mixins.lazy import LazyPublisher
 from arena_rclpy_mixins.spin import spin_node
 from arena_robots_msgs.msg import Energy, Power
 from rclpy.node import Node
@@ -45,8 +46,8 @@ class PowerPublisher(Node):
         self._warned_empty_effort: bool = False
 
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
-        self._power_pub = self.create_publisher(Power, "~/power", qos)
-        self._energy_pub = self.create_publisher(Energy, "~/energy", qos)
+        self._power_pub: LazyPublisher[Power] = LazyPublisher(self.create_publisher(Power, "~/power", qos))
+        self._energy_pub: LazyPublisher[Energy] = LazyPublisher(self.create_publisher(Energy, "~/energy", qos))
 
         self.create_subscription(JointState, "joint_states", self._on_joint_state, qos)
 
@@ -124,28 +125,32 @@ class PowerPublisher(Node):
                 self._total_energy_consumed_wh += (total_power * dt) / 3600.0
         self._last_time = current_time
 
-        if self._battery_capacity_wh > 0.0:
-            soc = max(0.0, (1.0 - self._total_energy_consumed_wh / self._battery_capacity_wh) * 100.0)
-        else:
-            soc = 0.0
+        def power() -> Power:
+            power_msg = Power()
+            power_msg.header = msg.header
+            power_msg.total_power_w = total_power
+            power_msg.static_power_w = self._static_power_w
+            power_msg.total_mechanical_power_w = total_mech
+            power_msg.total_thermal_power_w = total_therm
+            power_msg.joint_names = joint_names
+            power_msg.joint_mechanical_power_w = joint_mech
+            power_msg.joint_thermal_power_w = joint_therm
+            power_msg.joint_total_power_w = joint_total
+            return power_msg
 
-        power_msg = Power()
-        power_msg.header = msg.header
-        power_msg.total_power_w = total_power
-        power_msg.static_power_w = self._static_power_w
-        power_msg.total_mechanical_power_w = total_mech
-        power_msg.total_thermal_power_w = total_therm
-        power_msg.joint_names = joint_names
-        power_msg.joint_mechanical_power_w = joint_mech
-        power_msg.joint_thermal_power_w = joint_therm
-        power_msg.joint_total_power_w = joint_total
-        self._power_pub.publish(power_msg)
+        def energy() -> Energy:
+            if self._battery_capacity_wh > 0.0:
+                soc = max(0.0, (1.0 - self._total_energy_consumed_wh / self._battery_capacity_wh) * 100.0)
+            else:
+                soc = 0.0
+            energy_msg = Energy()
+            energy_msg.header = msg.header
+            energy_msg.total_energy_consumed_wh = self._total_energy_consumed_wh
+            energy_msg.battery_soc_percent = soc
+            return energy_msg
 
-        energy_msg = Energy()
-        energy_msg.header = msg.header
-        energy_msg.total_energy_consumed_wh = self._total_energy_consumed_wh
-        energy_msg.battery_soc_percent = soc
-        self._energy_pub.publish(energy_msg)
+        self._power_pub.publish(power)
+        self._energy_pub.publish(energy)
 
 
 def main() -> None:
