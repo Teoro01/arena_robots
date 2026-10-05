@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
+import importlib.util
+from collections.abc import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+import pytest
+
+if TYPE_CHECKING:
+    from arena_robots.bringup.mobile.nav2 import Nav2Bringup
+    from launch import LaunchDescription
+
+ROSNAV_RL_SIDECAR = Path(__file__).resolve().parents[2] / "config" / "nav2" / "controllers" / "rosnav_rl" / "controller.launch.py"
 
 
 def _make_mock_robot(name: str = "test_robot") -> object:
@@ -107,3 +119,63 @@ class TestNav2LaunchActions:
         actions = b._launch_actions()
         args = dict(actions[0].launch_arguments)
         assert "robot1" in args["namespace"]
+
+
+class TestNav2RosnavRlAgent:
+    def _make_bringup(self, temp_robot_dir: Callable[..., Path], mobile_cap: dict) -> Nav2Bringup:
+        from arena_robots.bringup.mobile.nav2 import Nav2Bringup
+        from arena_robots.Robot import RobotView
+
+        rd = temp_robot_dir(model_params={"base_frame": "base_link"}, mobile_cap=mobile_cap, name="myrobot")
+        return Nav2Bringup(robot=RobotView(rd), namespace="/robot1")
+
+    def test_agent_kwarg_forwarded(self, temp_robot_dir: Callable[..., Path]) -> None:
+        b = self._make_bringup(temp_robot_dir, {"odom_frame": "odom"})
+        actions = b._launch_actions(local_planner="rosnav_rl", agent="my_agent")
+        assert dict(actions[0].launch_arguments)["agent"] == "my_agent"
+
+    def test_agent_from_mobile_cap(self, temp_robot_dir: Callable[..., Path]) -> None:
+        b = self._make_bringup(temp_robot_dir, {"odom_frame": "odom", "rosnav_rl": {"agent": "cap_agent"}})
+        actions = b._launch_actions(local_planner="rosnav_rl")
+        assert dict(actions[0].launch_arguments)["agent"] == "cap_agent"
+
+    def test_agent_kwarg_overrides_mobile_cap(self, temp_robot_dir: Callable[..., Path]) -> None:
+        b = self._make_bringup(temp_robot_dir, {"odom_frame": "odom", "rosnav_rl": {"agent": "cap_agent"}})
+        actions = b._launch_actions(local_planner="rosnav_rl", agent="cli_agent")
+        assert dict(actions[0].launch_arguments)["agent"] == "cli_agent"
+
+    def test_rosnav_rl_without_agent_raises(self, temp_robot_dir: Callable[..., Path]) -> None:
+        b = self._make_bringup(temp_robot_dir, {"odom_frame": "odom"})
+        with pytest.raises(ValueError, match="robot.mobile.agent"):
+            b._launch_actions(local_planner="rosnav_rl")
+
+    def test_other_local_planner_without_agent(self, temp_robot_dir: Callable[..., Path]) -> None:
+        b = self._make_bringup(temp_robot_dir, {"odom_frame": "odom"})
+        actions = b._launch_actions(local_planner="mppi")
+        assert dict(actions[0].launch_arguments)["agent"] == ""
+
+
+class TestRosnavRlControllerSidecar:
+    def _load(self) -> LaunchDescription:
+        spec = importlib.util.spec_from_file_location("rosnav_rl_controller_launch", ROSNAV_RL_SIDECAR)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.generate_launch_description()
+
+    def test_declares_nav2_sidecar_args(self) -> None:
+        ld = self._load()
+        assert {a.name for a in ld.get_launch_arguments()} == {"namespace", "frame", "base_frame", "use_sim_time", "agent"}
+
+    def test_starts_rosnav_rl_action_server(self) -> None:
+        from launch import LaunchContext
+        from launch.actions import OpaqueFunction
+
+        ld = self._load()
+        context = LaunchContext()
+        context.launch_configurations.update({"namespace": "/env0/robot1", "frame": "env0/robot1/", "base_frame": "base_link", "use_sim_time": "true", "agent": "my_agent"})
+        (setup,) = [e for e in ld.entities if isinstance(e, OpaqueFunction)]
+        (node,) = setup.execute(context)
+        assert node.node_package == "rosnav_rl"
+        assert node.node_executable == "action_server.py"

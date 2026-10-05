@@ -32,8 +32,10 @@ the adapter emits (see `Nav2KinematicsDerivedYAML` / `Nav2CollisionDerivedYAML`)
 If a controller needs extra nodes alongside `controller_server` (a message bridge, a
 prediction node, ...), drop a `controller.launch.py` next to the config. The adapter
 includes it automatically when the file exists, passing `namespace`, `env_namespace`,
-`frame`, and `use_sim_time`. Controllers without one launch nothing extra.
+`frame`, `base_frame`, `use_sim_time`, and `agent`. Controllers without one launch nothing extra.
 
 Worked example: [hateb/controller.launch.py](hateb/controller.launch.py) starts the
 `cohan_peds_bridge`, which republishes `arena_peds` as `cohan_msgs/TrackedAgents` on the
-per-env frame the HATEB planner expects.
+per-env frame the HATEB planner expects. [rosnav_rl/controller.launch.py](rosnav_rl/controller.launch.py)
+starts the rosnav_rl `action_server.py` serving `get_command` for the agent named by
+`robot.mobile.agent:=<name>` (or `rosnav_rl.agent` in `caps/mobile.yaml`).

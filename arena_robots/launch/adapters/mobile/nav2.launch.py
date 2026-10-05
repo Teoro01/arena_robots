@@ -45,6 +45,7 @@ def generate_launch_description():
     planner_only = LaunchArgument('planner_only', default_value='false')
     sensors_json = LaunchArgument('sensors_json', default_value='')
     params_overlay = LaunchArgument('params_overlay', default_value='')
+    agent = LaunchArgument('agent', default_value='')
 
     def nav2_cfg(*parts):
         return PathJoinSubstitution([robots_root, 'config', 'nav2', *parts])
@@ -208,7 +209,9 @@ def generate_launch_description():
                         'namespace': namespace.substitution,
                         'env_namespace': env_namespace.substitution,
                         'frame': frame.substitution,
+                        'base_frame': YAMLRetrieveSubstitution(YAMLFileSubstitution(model_params_path), 'base_frame'),
                         'use_sim_time': use_sim_time.substitution,
+                        'agent': agent.substitution,
                     }.items(),
                 )
             )

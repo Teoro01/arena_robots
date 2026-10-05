@@ -46,8 +46,12 @@ class Nav2Bringup(Bringup):
         env_namespace: str = "",
         sensors: list[SensorSpec] | None = None,
         params_overlay: str = "",
+        agent: str = "",
         **_: object,
     ) -> list[Action]:
+        agent_name = agent or str(self.robot.caps.mobile.sub("rosnav_rl").get("agent", ""))
+        if local_planner == "rosnav_rl" and not agent_name:
+            raise ValueError(f"nav2 bringup for '{self.robot.name}' with local_planner=rosnav_rl missing required 'agent': set caps/mobile.yaml 'rosnav_rl.agent' or pass robot.mobile.agent:=<name>")
         launch_file = PathJoinSubstitution(
             [
                 FindPackageShare("arena_robots"),
@@ -69,6 +73,7 @@ class Nav2Bringup(Bringup):
             "task_generator_node": task_generator_node,
             "env_namespace": env_namespace,
             "params_overlay": params_overlay,
+            "agent": agent_name,
         }
         if sensors is not None:
             launch_arguments["sensors_json"] = json.dumps(
