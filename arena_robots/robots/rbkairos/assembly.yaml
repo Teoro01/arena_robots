@@ -32,22 +32,19 @@ mounts:
     frame: arm
   wrist_cam:
     parent: "@arm_mount:tip"
-    xyz: [0.0, -0.04, 0.03]
+    xyz: [0.0, -0.04, 0.00]
     rpy: [0, -1.5708, 1.5708]
     accepts: [camera]
     frame: wrist_rgbd_camera
   arm_base_cam:
     parent: top_cover
-    xyz: [-0.25, 0.0, 0.40]
-    rpy: [0.0, 0.5236, 0.0]
+    xyz: [0.2, -0.25, 0.1]
+    rpy: [0.0, -0.96, 1.5708]
     accepts: [camera]
     frame: arm_base_rgbd_camera
   
 
 defaults:
-  arm:
-    - variant: ur5e
-      mount: arm_mount
   lidar:
     - variant: sick_s300
       mount: front
@@ -61,10 +58,4 @@ defaults:
   camera:
     - variant: d435_color
       mount: front_cam
-      overrides: {name: rgbd_camera, topic: rgbd_camera, node_name: front_camera}
-    - variant: d435_color
-      mount: wrist_cam
-      overrides: {name: wrist_camera, topic: wrist_camera, node_name: wrist_camera}
-    - variant: d435_color
-      mount: arm_base_cam
-      overrides: {name: arm_base_camera, topic: arm_base_camera, node_name: arm_base_camera}
+      overrides: {name: rgbd_camera, topic: rgbd_camera, node_name: front_rgbd_camera}
