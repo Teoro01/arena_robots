@@ -12,6 +12,7 @@ install(
 install(
   DIRECTORY components/
   DESTINATION share/${PROJECT_NAME}/components
+  PATTERN ".git*" EXCLUDE
 )
 
 install(
