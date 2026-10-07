@@ -5,23 +5,23 @@ xacro:
     name: "${camera:-${mount}}"
     parent_link: "${prefix}${parent}"
     frame: "${prefix}${mount}"
-    topic: "${topic:-rgbd_camera}"
+    topic: "${topic:-${mount}}"
   args: {}
 sensor:
   gz:
-    - name: "${name:-rgbd_camera}_info"
+    - name: "${name:-${mount}}_info"
       type: camera_info
-      topic: "${topic:-rgbd_camera}/camera_info"
+      topic: "${topic:-${mount}}/camera_info"
       frame: "${prefix}${camera:-${mount}}_link"
       sensor: "${camera:-${mount}}"
-    - name: "${name:-rgbd_camera}_depth"
+    - name: "${name:-${mount}}_depth"
       type: depth
-      topic: "${topic:-rgbd_camera}/depth_image"
+      topic: "${topic:-${mount}}/depth_image"
       frame: "${prefix}${camera:-${mount}}_link"
       sensor: "${camera:-${mount}}"
-    - name: "${name:-rgbd_camera}_points"
+    - name: "${name:-${mount}}_points"
       type: pointcloud
-      topic: "${topic:-rgbd_camera}/depth_image/points"
+      topic: "${topic:-${mount}}/depth_image/points"
       frame: "${prefix}${camera:-${mount}}_link"
       sensor: "${camera:-${mount}}"
 power:

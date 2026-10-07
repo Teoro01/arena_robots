@@ -29,7 +29,7 @@
   <link name="${base_frame}">
     <visual>
       <geometry>
-        <mesh filename="package://arena_robots/components/camera/oakd_rgbd/meshes/${name}_${model}.dae" scale="1 1 1" />
+        <mesh filename="package://arena_robots/components/camera/oakd_rgbd/meshes/oakd_${model}.dae" scale="1 1 1" />
       </geometry>
     </visual>
     <collision>
@@ -121,7 +121,7 @@
   </joint>
 
   <gazebo reference="${name}_imu_joint">
-    <sensor name="imu_sensor" type="imu">
+    <sensor name="${name}_imu" type="imu">
       <plugin filename="libgz-sim-imu-system" name="gz::sim::systems::Imu">
         <topic>/imu/data</topic>
         <frame_id>${name}_imu_frame</frame_id>
@@ -188,7 +188,7 @@
   </gazebo>
 
   <!-- Gazebo links and joints -->
-  <xacro:gz_rgbd_camera frame="${name}_rgb_camera_frame" sensor_name="rgbd_camera"
+  <xacro:gz_rgbd_camera frame="${name}_rgb_camera_frame" sensor_name="${name}"
                         fov="1.25" width="320" height="240" near="0.3" far="100" update_rate="30"/>
 
   <gazebo reference="${name}_rgb_camera_frame">

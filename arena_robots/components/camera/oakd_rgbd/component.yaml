@@ -2,8 +2,8 @@ xacro:
   include: "$(find arena_robots)/components/camera/oakd_rgbd/oakd_rgb.urdf.xacro"
   macro: oakd
   attach:
-    name: "${mount}"
-    parent_link: "${parent}"
+    name: "${camera:-${mount}}"
+    parent_link: "${prefix}${parent}"
     model: "${model:-pro}"
   args:
     model: pro
@@ -11,30 +11,34 @@ xacro:
 # TestEffectiveSensorsMatchModelParams is order-sensitive.
 sensor:
   gz:
-    - name: "${imu_name:-imu}"
+    - name: "${imu_name:-${mount}}_imu"
       type: imu
-      topic: "${imu_topic:-imu/data}"
+      topic: "rgbd_camera/${topic:-${mount}}/imu/data"
       frame: "${prefix}${mount}_imu_frame"
-      sensor: imu_sensor
-    - name: "${name:-rgbd_camera}_info"
+      sensor: "${name:-${mount}}_imu"
+
+    - name: "${name:-${mount}}_info"
       type: camera_info
-      topic: "${topic:-rgbd_camera}/camera_info"
+      topic: "rgbd_camera/${topic:-${mount}}/camera_info"
       frame: "${prefix}${mount}_rgb_camera_frame"
-      sensor: rgbd_camera
-    - name: "${name:-rgbd_camera}_depth"
+      sensor: "${name:-${mount}}"
+
+    - name: "${name:-${mount}}_depth"
       type: depth
-      topic: "${topic:-rgbd_camera}/depth_image"
+      topic: "rgbd_camera/${topic:-${mount}}/depth_image"
       frame: "${prefix}${mount}_rgb_camera_frame"
-      sensor: rgbd_camera
-    - name: "${name:-rgbd_camera}_image"
+      sensor: "${name:-${mount}}"
+
+    - name: "${name:-${mount}}_image"
       type: image
-      topic: "${topic:-rgbd_camera}/image"
+      topic: "rgbd_camera/${topic:-${mount}}/image"
       frame: "${prefix}${mount}_rgb_camera_frame"
-      sensor: rgbd_camera
-    - name: "${name:-rgbd_camera}_points"
+      sensor: "${name:-${mount}}"
+
+    - name: "${name:-${mount}}_points"
       type: pointcloud
-      topic: "${topic:-rgbd_camera}/points"
+      topic: "rgbd_camera/${topic:-${mount}}/points"
       frame: "${prefix}${mount}_rgb_camera_frame"
-      sensor: rgbd_camera
+      sensor: "${name:-${mount}}"
 power:
   static_power_w: 3.5
