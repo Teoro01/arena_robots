@@ -1,6 +1,7 @@
 """Nav2 launch helpers."""
 
 import json
+import math
 import tempfile
 import typing
 from pathlib import Path
@@ -10,8 +11,9 @@ import yaml
 from arena_bringup.substitutions import YAMLFileSubstitution
 
 from arena_robots.caps import MobileSpec, stringify_float_matrix
-from arena_robots.Robot import ModelParams
+from arena_robots.Robot import ModelParams, RobotIdentifier
 from arena_robots.Sensor import SensorSpec, SensorType
+from arena_robots.sensor_geometry import SensorGeometry, sensor_geometry
 
 _TYPE_TO_NAV2: dict[str, str] = {
     SensorType.LASERSCAN.value: "LaserScan",
@@ -20,6 +22,10 @@ _TYPE_TO_NAV2: dict[str, str] = {
 
 # Fallback raytrace/obstacle range when caps/mobile.yaml carries no `laser:` block.
 _DEFAULT_LIDAR_RANGE = 10.0
+
+_CLEARING_SUFFIX = "_clearing"
+_STVL_X_FORWARD_FRUSTUM = 1
+_STVL_FULL_TURN = 6.29
 
 
 def compile_sensors_to_nav2(
@@ -76,6 +82,93 @@ def compile_sensors_to_nav2(
     return out
 
 
+def _type_str(spec: SensorSpec) -> str:
+    return spec.type.value if isinstance(spec.type, SensorType) else str(spec.type)
+
+
+def split_planar_sensors(
+    sensors: list[SensorSpec],
+    geometry: typing.Mapping[str, SensorGeometry],
+) -> tuple[list[SensorSpec], list[SensorSpec]]:
+    """One (planar, volumetric) costmap spec per backing sensor: its scan when planar, else its cloud."""
+    groups: dict[str, dict[str, SensorSpec]] = {}
+    for spec in sensors:
+        type_str = _type_str(spec)
+        if type_str in _TYPE_TO_NAV2:
+            groups.setdefault(spec.sensor or spec.name, {})[type_str] = spec
+    planar: list[SensorSpec] = []
+    volumetric: list[SensorSpec] = []
+    for backing, by_type in groups.items():
+        scan = by_type.get(SensorType.LASERSCAN.value)
+        cloud = by_type.get(SensorType.POINTCLOUD.value)
+        shape = geometry.get(backing)
+        is_planar = shape.planar if shape is not None else cloud is None
+        if is_planar:
+            planar.append(scan or cloud)
+        else:
+            volumetric.append(cloud or scan)
+    return planar, volumetric
+
+
+def _clearing_frustum(geometry: SensorGeometry) -> tuple[float, float] | None:
+    """(vertical, horizontal) full angles of an x-forward frustum inside the sensor's view."""
+    horizontal = geometry.horizontal_fov
+    if geometry.kind == "camera":
+        vertical_half = math.atan(math.tan(geometry.vertical_max) * math.cos(horizontal / 2.0))
+    else:
+        vertical_half = min(-geometry.vertical_min, geometry.vertical_max)
+    if vertical_half <= 0.0:
+        return None
+    if horizontal >= 2.0 * math.pi - 1e-3:
+        horizontal = _STVL_FULL_TURN
+    return 2.0 * vertical_half, horizontal
+
+
+def compile_sensors_to_stvl(
+    sensors: list[SensorSpec],
+    geometry: typing.Mapping[str, SensorGeometry],
+    *,
+    default_range: float,
+    obstacle_range_margin: float = 1.0,
+    max_obstacle_height: float = 0.8,
+    min_obstacle_height: float = 0.1,
+    decay_acceleration: float = 5.0,
+) -> dict[str, dict[str, typing.Any]]:
+    """Compile volumetric specs into voxel-layer marking sources plus `<name>_clearing` frustums inside each sensor's view."""
+    out: dict[str, dict[str, typing.Any]] = {}
+    for spec in sensors:
+        data_type = _TYPE_TO_NAV2[_type_str(spec)]
+        shape = geometry.get(spec.sensor or spec.name)
+        max_range = shape.max_range if shape is not None else default_range
+        out[spec.name] = {
+            "topic": spec.topic,
+            "data_type": data_type,
+            "marking": True,
+            "clearing": False,
+            "obstacle_range": max(0.0, max_range - obstacle_range_margin),
+            "min_obstacle_height": min_obstacle_height,
+            "max_obstacle_height": max_obstacle_height,
+            "clear_after_reading": True,
+        }
+        frustum = _clearing_frustum(shape) if shape is not None else None
+        if shape is None or frustum is None:
+            continue
+        vertical, horizontal = frustum
+        out[f"{spec.name}{_CLEARING_SUFFIX}"] = {
+            "topic": spec.topic,
+            "data_type": data_type,
+            "marking": False,
+            "clearing": True,
+            "model_type": _STVL_X_FORWARD_FRUSTUM,
+            "min_z": shape.min_range,
+            "max_z": max_range,
+            "vertical_fov_angle": vertical,
+            "horizontal_fov_angle": horizontal,
+            "decay_acceleration": decay_acceleration,
+        }
+    return out
+
+
 def compile_sensors_to_collision_monitor(
     sensors: list[SensorSpec],
     *,
@@ -112,10 +205,11 @@ def _load_mobile(path_str: str) -> MobileSpec:
 
 
 class SensorsDerivedYAML(YAMLFileSubstitution):
-    """Emit `observation_sources{,_string,_dict,_dict_global}` and
-    `collision_sources{,_dict}` from sensors+laser range.
+    """Emit `observation_sources{,_string,_string_planar,_string_global,_dict,_dict_planar,_dict_global}`
+    and `collision_sources{,_dict}` from sensors+laser range.
 
-    Local uses the full lidar range; global uses shorter capped ranges and pulls per-source
+    Local uses the full lidar range, with planar sensors under the `_planar` keys and
+    volumetric ones under the bare keys. Global uses shorter capped ranges and pulls per-source
     overrides (`raytrace_max_range`, `obstacle_max_range`, `observation_persistence`) from
     the optional `nav2.global_observation` block in caps/mobile.yaml.
     """
@@ -143,12 +237,17 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
 
         sensors_json_str = launch.utilities.perform_substitutions(context, self._sensors_json)
         if sensors_json_str:
-            sensors = [SensorSpec(name=d['name'], type=d['type'], topic=d['topic'], frame='') for d in json.loads(sensors_json_str)]
+            entries = json.loads(sensors_json_str)
+            sensors = [SensorSpec(name=d['name'], type=d['type'], topic=d['topic'], frame='', sensor=d.get('sensor')) for d in entries]
+            geometry = {d['sensor']: SensorGeometry(**d['geometry']) for d in entries if d.get('geometry')}
         else:
             path_str = launch.utilities.perform_substitutions(context, self._path)
             sensors = ModelParams.from_yaml(path_str).sensors
+            geometry = sensor_geometry(RobotIdentifier(Path(path_str).parent.name).resolve_sync(), {})
 
-        local_sources = compile_sensors_to_nav2(sensors, max_range=max_range)
+        planar, volumetric = split_planar_sensors(sensors, geometry)
+        planar_sources = compile_sensors_to_nav2(planar, max_range=max_range)
+        local_sources = compile_sensors_to_stvl(volumetric, geometry, default_range=max_range)
 
         overrides = mobile.raw.get('nav2', {}).get('global_observation', {}) or {}
         g_raytrace = float(overrides.get('raytrace_max_range', min(max_range, self._GLOBAL_DEFAULT_RAYTRACE)))
@@ -174,8 +273,11 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
 
         derived = {
             'observation_sources_string': ' '.join(local_sources.keys()),
-            'observation_sources': list(local_sources.keys()),
+            'observation_sources_string_planar': ' '.join(planar_sources.keys()),
+            'observation_sources_string_global': ' '.join(global_sources.keys()),
+            'observation_sources': [*planar_sources.keys(), *local_sources.keys()],
             'observation_sources_dict': local_sources,
+            'observation_sources_dict_planar': planar_sources,
             'observation_sources_dict_global': global_sources,
             'collision_sources': list(collision_sources.keys()),
             'collision_sources_dict': collision_sources,

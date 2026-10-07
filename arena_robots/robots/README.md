@@ -33,6 +33,15 @@ sensors:                    # optional; declared sensors parsed into SensorSpec 
 Parsed by [`arena_robots.Robot.ModelParams`](../arena_robots/Robot.py). Additional keys pass
 through unchanged; nothing in-tree consumes them.
 
+`sensors` also drives the Nav2 costmap sources ([`arena_robots.nav2`](../arena_robots/nav2.py)).
+The local costmap raytraces planar lidars in a 2D obstacle layer and runs multi-ring lidars
+and depth cameras through a spatio-temporal voxel layer, which clears inside a frustum fitted
+to the sensor's field of view. Field of view and range are read from the gz `<sensor>` element
+of the rendered URDF that the entry's `sensor:` key names, or its `name` when the key is absent
+([`arena_robots.sensor_geometry`](../arena_robots/sensor_geometry.py)). A sensor without such
+an element counts as planar when it only declares a `laserscan`. Otherwise it marks without
+clearing and its obstacles expire after the layer's `voxel_decay`.
+
 ### `caps/`: capability declarations
 
 Each `caps/<cap>.yaml` declares one capability the robot physically has. **File
