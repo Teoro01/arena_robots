@@ -12,6 +12,9 @@ import attrs
 import numpy as np
 import yaml
 from ament_index_python.packages import get_package_share_path
+from arena_simulation_setup.tree.assets.sound_level import active_rms as active_rms
+from arena_simulation_setup.tree.assets.sound_level import dbfs_from_rms as dbfs_from_rms
+from arena_simulation_setup.tree.assets.sound_level import rms_from_dbfs as rms_from_dbfs
 from numpy.typing import NDArray
 
 type Vec3 = tuple[float, float, float]
@@ -145,41 +148,12 @@ def geometric_delays_s(source_m: Vec3, mics_m: Sequence[Vec3], *, speed_of_sound
     return np.linalg.norm(positions - source[None, :], axis=1) / speed_of_sound_mps
 
 
-FULL_SCALE_SINE_RMS = 1.0 / math.sqrt(2.0)
-ACTIVE_LEVEL_WINDOW_S = 0.01
-ACTIVE_LEVEL_GATE_DB = -20.0
 REFERENCE_SPL_DB = 94.0
 
 
 def rms(samples: NDArray[np.floating], *, axis: int | None = None) -> NDArray[np.float64] | float:
     values = np.asarray(samples, dtype=np.float64)
     return np.sqrt(np.mean(values * values, axis=axis)) if values.size else 0.0
-
-
-def dbfs_from_rms(value: float, *, floor_db: float = -120.0) -> float:
-    """Level in dBFS where a full-scale sine reads 0 dBFS."""
-    return max(20.0 * math.log10(max(float(value), 1e-12) / FULL_SCALE_SINE_RMS), floor_db)
-
-
-def rms_from_dbfs(level_dbfs: float) -> float:
-    """RMS of a sine at level_dbfs."""
-    return FULL_SCALE_SINE_RMS * 10.0 ** (float(level_dbfs) / 20.0)
-
-
-def active_rms(samples: NDArray[np.floating], sample_rate: int) -> float:
-    """RMS of the 10 ms windows within 20 dB of the loudest, framed from the first non-silent frame."""
-    audio = np.asarray(samples, dtype=np.float64)
-    power = audio * audio if audio.ndim == 1 else np.mean(audio * audio, axis=1)
-    sounding = np.flatnonzero(power)
-    if sounding.size == 0:
-        return 0.0
-    power = power[sounding[0] : sounding[-1] + 1]
-    window = max(round(sample_rate * ACTIVE_LEVEL_WINDOW_S), 1)
-    starts = np.arange(0, power.size, window)
-    sums = np.add.reduceat(power, starts)
-    lengths = np.diff(np.append(starts, power.size))
-    gated = sums / lengths >= np.max(sums / lengths) * 10.0 ** (ACTIVE_LEVEL_GATE_DB / 10.0)
-    return float(np.sqrt(np.sum(sums[gated]) / np.sum(lengths[gated])))
 
 
 def spl_to_dbfs(spl_db: float, sensitivity_dbfs_at_94_dbspl: float) -> float:
