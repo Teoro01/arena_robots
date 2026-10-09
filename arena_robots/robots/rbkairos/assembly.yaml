@@ -25,7 +25,7 @@ mounts:
     accepts: [camera]
     frame: front_rgbd_camera
   arm_mount:
-    parent: "top_cover"
+    parent: top_cover
     xyz: [0, 0, 0]
     rpy: [0, 0, 0]
     accepts: [arm]
