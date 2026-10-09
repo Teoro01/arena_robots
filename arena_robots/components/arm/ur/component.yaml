@@ -14,6 +14,7 @@ xacro:
     sim_gazebo: "${gazebo_classic}"
     sim_ignition: "${gazebo_ignition}"
     safety_limits: "${safety_limits:-false}"
+    generate_ros2_control_tag: "false"
   args:
     safety_limits: false
 
