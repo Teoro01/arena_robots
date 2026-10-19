@@ -6,7 +6,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, cast
 
 from pydantic import Field
 
@@ -14,11 +14,14 @@ from arena_mcp.core import JOBS, LATCHED, RELIABLE, ROS, SENSOR, Domain, ToolErr
 from arena_mcp.core.jobs import RUNNING
 
 if TYPE_CHECKING:
+    from arena_robots_msgs.action import GotoPose, PlayGesture, ReachPose
     from geometry_msgs.msg import PoseStamped
+    from sensor_msgs.msg import LaserScan
 
     from arena_mcp.core import JobHandle
+    from arena_mcp.core.ros import ActionType
     from arena_robots.assembly import RequestPart
-    from arena_robots.caps import RobotCaps
+    from arena_robots.caps import ArmSpec, RobotCaps
     from arena_robots.Robot import RobotView
     from arena_robots.Sensor import SensorSpec
     from arena_robots.task_kinds import TaskKind
@@ -119,7 +122,7 @@ def _mobile(caps: RobotCaps) -> dict[str, Any] | None:
         except Exception as exc:
             out[field] = {"error": _error(exc)}
     out["adapter_blocks"] = sorted(key for key, value in mobile.raw.items() if isinstance(value, dict) and key not in ("polygons_dict", "planar", "actions", "laser", "velocity_limits", "acceleration_limits"))
-    return msgs.jsonable(out)
+    return cast("dict[str, Any]", msgs.jsonable(out))
 
 
 def _shared_gestures() -> list[str]:
@@ -128,7 +131,7 @@ def _shared_gestures() -> list[str]:
     return sorted({Path(identifier.name).stem for identifier in GestureIdentifier.listall()})
 
 
-def _gestures(arm: object) -> dict[str, Any]:
+def _gestures(arm: ArmSpec) -> dict[str, Any]:
     from arena_simulation_setup.tree.Gesture import GestureIdentifier
 
     poses = set(arm.named_poses)
@@ -217,7 +220,7 @@ def _assembly(view: RobotView) -> dict[str, Any] | None:
     spec = view.assembly
     if spec is None:
         return None
-    out = _attrs(spec)
+    out = cast("dict[str, Any]", _attrs(spec))
     out["variants"] = {type_: _component_variants(type_) for type_ in sorted({type_ for mount in spec.mounts.values() for type_ in mount.accepts})}
     return out
 
@@ -364,7 +367,7 @@ def _uri_check(include_uninitialized: bool) -> dict[str, Any]:
         elif (match := _SOURCE.match(line)) and owner is not None and uri is not None:
             missing[(owner, uri)].append(match.group(1))
         elif (match := _URI.match(line)) and owner is not None:
-            uri = match.group(1)
+            uri = cast("str", match.group(1))
             missing[(owner, uri)] = []
     return {"command": done["command"], "skipped_uninitialized": skipped, "dynamic_refs": dynamic, "missing": [{"owner": key[0], "uri": key[1], "sources": sources} for key, sources in missing.items()]}
 
@@ -461,10 +464,14 @@ def _hint(entry: dict[str, Any], served: dict[str, Any]) -> str:
     return f"{entry['name']} serves {live or 'no task actions'} (adapters: {adapters or 'none'}), robots_fleet shows the live endpoints"
 
 
-class _Feedback:
+class _FeedbackMessage[FeedbackT](Protocol):
+    feedback: FeedbackT
+
+
+class _Feedback[FeedbackT]:
     """Feedback from the ROS thread, applied to the job on the server loop at most twice a second."""
 
-    def __init__(self, convert: Callable[[object], dict[str, Any]]) -> None:
+    def __init__(self, convert: Callable[[FeedbackT], dict[str, Any]]) -> None:
         self._loop = asyncio.get_running_loop()
         self._convert = convert
         self._handle: JobHandle | None = None
@@ -472,7 +479,7 @@ class _Feedback:
         self._last = 0.0
 
     def __call__(self, message: object) -> None:
-        self._loop.call_soon_threadsafe(self._apply, self._convert(message.feedback))
+        self._loop.call_soon_threadsafe(self._apply, self._convert(cast("_FeedbackMessage[FeedbackT]", message).feedback))
 
     def _apply(self, fields: dict[str, Any]) -> None:
         self._pending = fields
@@ -490,7 +497,7 @@ class _Feedback:
             self._last = time.monotonic()
 
 
-async def _action_job(kind: str, title: str, entry: dict[str, Any], task_kind: TaskKind, goal: object, convert: Callable[[object], dict[str, Any]]) -> dict[str, Any]:
+async def _action_job[FeedbackT](kind: str, title: str, entry: dict[str, Any], task_kind: TaskKind, goal: object, convert: Callable[[FeedbackT], dict[str, Any]]) -> dict[str, Any]:
     from action_msgs.msg import GoalStatus
 
     from arena_robots.task_kinds import action_type, endpoint
@@ -499,7 +506,7 @@ async def _action_job(kind: str, title: str, entry: dict[str, Any], task_kind: T
     name = endpoint(entry["ns"], task_kind)
     feedback = _Feedback(convert)
     hint = _hint(entry, _served(entry, (await ROS.graph())["actions"]))
-    wrapper, handle = await ROS.send_goal(action, name, goal, feedback=feedback, hint=hint)
+    wrapper, handle = await ROS.send_goal(cast("ActionType[object]", action), name, goal, feedback=feedback, hint=hint)
     statuses = msgs.constants(action.Result, "STATUS_")
     goal_statuses = msgs.constants(GoalStatus, "STATUS_")
 
@@ -542,12 +549,12 @@ async def _stamped(frame: str, x: float, y: float, z: float = 0.0, roll: float =
     return msg
 
 
-def _goto_feedback(feedback: object) -> dict[str, Any]:
-    return msgs.jsonable({"distance_remaining": feedback.distance_remaining, "eta_seconds": feedback.eta_seconds, "current_pose": msgs.pose_dict(feedback.current_pose.pose), "frame": feedback.current_pose.header.frame_id})
+def _goto_feedback(feedback: GotoPose.Feedback) -> dict[str, Any]:
+    return cast("dict[str, Any]", msgs.jsonable({"distance_remaining": feedback.distance_remaining, "eta_seconds": feedback.eta_seconds, "current_pose": msgs.pose_dict(feedback.current_pose.pose), "frame": feedback.current_pose.header.frame_id}))
 
 
-def _arm_feedback(feedback: object) -> dict[str, Any]:
-    return msgs.jsonable({"state": feedback.state, "progress": feedback.progress})
+def _arm_feedback(feedback: ReachPose.Feedback | PlayGesture.Feedback) -> dict[str, Any]:
+    return cast("dict[str, Any]", msgs.jsonable({"state": feedback.state, "progress": feedback.progress}))
 
 
 @domain.tool()
@@ -602,7 +609,7 @@ async def robots_reach(
     goal = ReachPose.Goal()
     if named is not None:
         goal.named_target = named
-    else:
+    elif x is not None and y is not None and z is not None:
         goal.target = await _stamped(frame or entry["base_frame"], x, y, z, roll, pitch, yaw)
     goal.instance = instance
     goal.position_tolerance = float(position_tolerance)
@@ -718,7 +725,7 @@ async def _maybe[T](awaitable: Awaitable[T]) -> tuple[T | None, str | None]:
         return None, exc.message
 
 
-def _path_length(points: list[object]) -> float:
+def _path_length(points: list[PoseStamped]) -> float:
     total = 0.0
     for first, second in zip(points, points[1:], strict=False):
         total += math.hypot(second.pose.position.x - first.pose.position.x, second.pose.position.y - first.pose.position.y)
@@ -759,7 +766,7 @@ async def robots_pose(env_id: EnvId = None, robot: RobotName = None) -> dict[str
         out["odom"] = {"error": odom_error}
     if trail is not None:
         out["trail"] = {"points": len(trail.poses), "length_m": round(_path_length(list(trail.poses)), 3)}
-    return msgs.jsonable(out)
+    return cast("dict[str, Any]", msgs.jsonable(out))
 
 
 def _parts(view: RobotView, params: dict[str, str]) -> dict[str, list[RequestPart]]:
@@ -836,7 +843,7 @@ async def robots_sensors(
     return sensors
 
 
-def _scan_summary(msg: object, sectors: int) -> dict[str, Any]:
+def _scan_summary(msg: LaserScan, sectors: int) -> dict[str, Any]:
     import numpy as np
 
     ranges = np.asarray(msg.ranges, dtype=np.float64)
@@ -860,10 +867,10 @@ def _scan_summary(msg: object, sectors: int) -> dict[str, Any]:
     for low, high in zip(edges[:-1], edges[1:], strict=True):
         inside = valid & (angles >= min(low, high)) & (angles < max(low, high))
         out["sectors"].append({"center_deg": round(math.degrees(float((low + high) / 2)), 1), "min_range": float(ranges[inside].min()) if inside.any() else None, "valid": int(inside.sum())})
-    return msgs.jsonable(out)
+    return cast("dict[str, Any]", msgs.jsonable(out))
 
 
-def _scan_image(msg: object, side: int = 480) -> object:
+def _scan_image(msg: LaserScan, side: int = 480) -> object:
     import numpy as np
 
     ranges = np.asarray(msg.ranges, dtype=np.float64)
