@@ -12,6 +12,7 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <exec_depend>arena_bringup</exec_depend>
+  <exec_depend>arena_mcp</exec_depend>
   <exec_depend>arena_rclpy_mixins</exec_depend>
   <exec_depend>arena_robots_msgs</exec_depend>
   <exec_depend>arena_runtime_msgs</exec_depend>

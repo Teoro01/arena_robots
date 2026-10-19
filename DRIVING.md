@@ -76,6 +76,31 @@ Expected output for a `nav2` bringup:
 /husky_1/goto_pose
 ```
 
+## Drive through MCP
+
+The `robots` domain of the Arena MCP server (`arena_robots.mcp`) wraps this
+surface for agents. `python3 -m arena_mcp ls robots` lists its tools.
+
+- Offline, without ROS: the robot catalog from `RobotIdentifier`, one model's
+  resolved definition (caps, limits, footprint, arm poses and gestures, default
+  sensors, task endpoints and the bringups that serve them, assembly, power
+  profile) and a validation that runs `arena feature robots check` plus
+  definition checks as structured findings.
+- Live, in a running env: the fleet from `state/robots` with the task actions
+  each robot serves right now (read from the ROS graph), `goto_pose`,
+  `reach_pose` and `play_gesture` goals, velocity commands, task pose and
+  odometry, sensor topics, laser scan summaries, camera frames and power.
+
+Live tools take `env_id` and `robot`, both optional when the runtime has one
+env and the env one robot. Goals and timed drives run as jobs: the action
+feedback (distance and ETA for `goto_pose`) lands in the job's progress,
+`jobs_cancel` cancels the goal, and a failed action status fails the job with
+its reason. Velocity commands are `geometry_msgs/Twist` on `<robot_ns>/cmd_vel`,
+which the per-robot `twist_stamper` relays as `TwistStamped` to the
+ros2_control controller and which flatsim reads directly. A stop zeroes that
+topic and ends a running drive job, a planner holding a goal keeps commanding
+until its goal is cancelled.
+
 ## Real-robot caveat
 
 `state_publisher.launch.py` (included by `bringup.launch.py`) hardcodes
