@@ -11,6 +11,7 @@ from arena_rclpy_mixins.lazy import LazyPublisher
 from arena_rclpy_mixins.spin import spin_node
 from arena_robots_msgs.msg import Acoustics, CollisionEvents
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 
@@ -20,8 +21,8 @@ class AcousticsPublisher(Node):
 
     COLLISION_IMPULSE_DBA: float = 100.0
 
-    def __init__(self, **kwargs: object) -> None:
-        super().__init__("acoustics_publisher", **kwargs)
+    def __init__(self, *, parameter_overrides: list[Parameter] | None = None) -> None:
+        super().__init__("acoustics_publisher", parameter_overrides=parameter_overrides)
 
         robot_name_param = str(self.declare_parameter("robot_name", "").value)
         profile_path_param = str(self.declare_parameter("profile_path", "").value)

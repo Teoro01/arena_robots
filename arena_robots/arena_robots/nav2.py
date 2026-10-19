@@ -7,6 +7,7 @@ import typing
 from pathlib import Path
 
 import launch
+import launch.utilities
 import yaml
 from arena_bringup.substitutions import YAMLFileSubstitution
 
@@ -104,9 +105,9 @@ def split_planar_sensors(
         shape = geometry.get(backing)
         is_planar = shape.planar if shape is not None else cloud is None
         if is_planar:
-            planar.append(scan or cloud)
+            planar.append(scan or next(iter(by_type.values())))
         else:
-            volumetric.append(cloud or scan)
+            volumetric.append(cloud or next(iter(by_type.values())))
     return planar, volumetric
 
 

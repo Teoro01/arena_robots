@@ -8,6 +8,7 @@ import attrs
 
 if TYPE_CHECKING:
     from arena_robots.Robot import RobotView
+    from arena_robots.Sensor import SensorSpec
     from arena_robots.task_server_handlers import TaskHandler
 
 from arena_rclpy_mixins.shared import Namespace
@@ -34,10 +35,10 @@ class BringupMeta:
     cap: str = ""
 
     @classmethod
-    def attach(cls, **kwargs: object) -> Callable[[type], type]:
-        meta = cls(**kwargs)
+    def attach[T: type[Bringup]](cls, *, requires: str | Iterable[str], cap: str = "") -> Callable[[T], T]:
+        meta = cls(requires=requires, cap=cap)
 
-        def wrap(target: type) -> type:
+        def wrap(target: T) -> T:
             target._bringup_meta = meta
             return target
 
@@ -46,6 +47,7 @@ class BringupMeta:
 
 class Bringup(ABC):
     kind: ClassVar[str]
+    _bringup_meta: ClassVar[BringupMeta]
     task_handlers: ClassVar[dict[TaskKind, Callable[[], type[TaskHandler]]]] = {}
 
     def __init__(self, robot: RobotView, namespace: str, *, frame: str = "", parts: dict[str, list] | None = None) -> None:
@@ -64,7 +66,9 @@ class Bringup(ABC):
         *,
         use_sim_time: bool = True,
         frame: str = "",
-        **launch_args: object,
+        task_generator_node: str = "",
+        env_namespace: str = "",
+        sensors: list[SensorSpec] | None = None,
     ) -> list[Action]: ...
 
     def telemetry_actions(self) -> list[Action]:

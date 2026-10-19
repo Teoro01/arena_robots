@@ -21,7 +21,12 @@ from arena_robots.lockstep_beat import LockstepBeat
 from arena_robots.task_server_handlers import TaskHandler, _executor_sleep
 
 if TYPE_CHECKING:
+    from rclpy.action.server import ServerGoalHandle
+    from rclpy.node import Node
+    from tf2_ros import Buffer
+
     from arena_robots.bringup.arm.moveit import MoveItArmBringup
+    from arena_robots.caps import ArmSpec
 
 _DEFAULT_POSITION_TOLERANCE = 0.01
 _DEFAULT_ORIENTATION_TOLERANCE = 0.1
@@ -44,7 +49,7 @@ def _translate_moveit_status(code: int) -> tuple[int, str]:
 
 
 class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, ReachPose.Result]):
-    def __init__(self, bringup: MoveItArmBringup, *, tf_buffer: object, node: object) -> None:
+    def __init__(self, bringup: MoveItArmBringup, *, tf_buffer: Buffer, node: Node) -> None:
         self._bringup = bringup
         self._tf_buffer = tf_buffer
         self._node = node
@@ -55,11 +60,14 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
             node.create_subscription(
                 JointTrajectoryControllerState,
                 str(bringup.arm_namespace(mount)(arm.controller, "controller_state")),
-                lambda msg: self._beat.pulse(msg.header.stamp),
+                self._on_controller_state,
                 10,
             )
 
-    async def execute(self, goal_handle: object) -> ReachPose.Result:
+    def _on_controller_state(self, msg: JointTrajectoryControllerState) -> None:
+        self._beat.pulse(msg.header.stamp)
+
+    async def execute(self, goal_handle: ServerGoalHandle) -> ReachPose.Result:
         arena_goal: ReachPose.Goal = goal_handle.request
         result = ReachPose.Result()
 
@@ -99,7 +107,7 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
         finally:
             await self._beat.release()
 
-    async def _dispatch(self, goal_handle: object, native_client: ActionClient, mg_goal: MoveGroup.Goal, result: ReachPose.Result) -> ReachPose.Result:
+    async def _dispatch(self, goal_handle: ServerGoalHandle, native_client: ActionClient, mg_goal: MoveGroup.Goal, result: ReachPose.Result) -> ReachPose.Result:
         if goal_handle.is_cancel_requested:
             goal_handle.canceled()
             result.status = ReachPose.Result.STATUS_CANCELED
@@ -109,7 +117,7 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
         send_future = native_client.send_goal_async(mg_goal)
         native_handle = await send_future
 
-        if not native_handle.accepted:
+        if native_handle is None or not native_handle.accepted:
             goal_handle.abort()
             result.status = ReachPose.Result.STATUS_ABORTED
             result.reason = "MoveIt MotionPlanRequest aborted"
@@ -140,7 +148,7 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
         result.reason = arena_reason
         return result
 
-    def _build_goal(self, arena_goal: ReachPose.Goal, arm: object) -> MoveGroup.Goal | None:
+    def _build_goal(self, arena_goal: ReachPose.Goal, arm: ArmSpec) -> MoveGroup.Goal | None:
         constraints = Constraints()
 
         if arena_goal.named_target:
@@ -154,7 +162,7 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
                 jc.tolerance_above = 0.01
                 jc.tolerance_below = 0.01
                 jc.weight = 1.0
-                constraints.joint_constraints.append(jc)
+                constraints.joint_constraints.append(jc)  # pyright: ignore[reportAttributeAccessIssue]
         else:
             pos_tol = arena_goal.position_tolerance or _DEFAULT_POSITION_TOLERANCE
             ori_tol = arena_goal.orientation_tolerance or _DEFAULT_ORIENTATION_TOLERANCE
@@ -165,10 +173,10 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
             prim = SolidPrimitive()
             prim.type = SolidPrimitive.SPHERE
             prim.dimensions = [max(float(pos_tol), 0.001)]
-            pc.constraint_region.primitives.append(prim)
-            pc.constraint_region.primitive_poses.append(arena_goal.target.pose)
+            pc.constraint_region.primitives.append(prim)  # pyright: ignore[reportAttributeAccessIssue]
+            pc.constraint_region.primitive_poses.append(arena_goal.target.pose)  # pyright: ignore[reportAttributeAccessIssue]
             pc.weight = 1.0
-            constraints.position_constraints.append(pc)
+            constraints.position_constraints.append(pc)  # pyright: ignore[reportAttributeAccessIssue]
 
             oc = OrientationConstraint()
             oc.header = arena_goal.target.header
@@ -178,12 +186,12 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
             oc.absolute_y_axis_tolerance = float(ori_tol)
             oc.absolute_z_axis_tolerance = float(ori_tol)
             oc.weight = 1.0
-            constraints.orientation_constraints.append(oc)
+            constraints.orientation_constraints.append(oc)  # pyright: ignore[reportAttributeAccessIssue]
 
         mg_goal = MoveGroup.Goal()
         mg_goal.request = MotionPlanRequest()
         mg_goal.request.group_name = arm.planning_group or arm.name
-        mg_goal.request.goal_constraints.append(constraints)
+        mg_goal.request.goal_constraints.append(constraints)  # pyright: ignore[reportAttributeAccessIssue]
         mg_goal.request.allowed_planning_time = float(arena_goal.planning_time or _DEFAULT_PLANNING_TIME)
         mg_goal.request.num_planning_attempts = 5
         mg_goal.request.max_velocity_scaling_factor = 1.0
@@ -193,12 +201,15 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
         mg_goal.request.start_state.is_diff = True
         ws = arm.workspace
         if ws is not None and ws.get("type") == "box":
+            ws_min, ws_max = ws["min"], ws["max"]
+            if not isinstance(ws_min, list) or not isinstance(ws_max, list):
+                raise ValueError(f"{arm.path}: arm '{arm.name}' workspace 'min' and 'max' must be lists")
             mg_goal.request.workspace_parameters.header.frame_id = self._tf_prefix + str(ws.get("frame", "base_link"))
-            mg_goal.request.workspace_parameters.min_corner.x = float(ws["min"][0])
-            mg_goal.request.workspace_parameters.min_corner.y = float(ws["min"][1])
-            mg_goal.request.workspace_parameters.min_corner.z = float(ws["min"][2])
-            mg_goal.request.workspace_parameters.max_corner.x = float(ws["max"][0])
-            mg_goal.request.workspace_parameters.max_corner.y = float(ws["max"][1])
-            mg_goal.request.workspace_parameters.max_corner.z = float(ws["max"][2])
+            mg_goal.request.workspace_parameters.min_corner.x = float(ws_min[0])
+            mg_goal.request.workspace_parameters.min_corner.y = float(ws_min[1])
+            mg_goal.request.workspace_parameters.min_corner.z = float(ws_min[2])
+            mg_goal.request.workspace_parameters.max_corner.x = float(ws_max[0])
+            mg_goal.request.workspace_parameters.max_corner.y = float(ws_max[1])
+            mg_goal.request.workspace_parameters.max_corner.z = float(ws_max[2])
         mg_goal.planning_options.plan_only = False
         return mg_goal

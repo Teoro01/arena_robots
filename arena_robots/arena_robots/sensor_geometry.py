@@ -117,11 +117,11 @@ def render_urdf(robot: RobotView, parts: dict[str, list[RequestPart]]) -> str:
 
     resolved = robot._resolved(parts)
     if resolved is None:
-        return xacro.process_file(str(robot.path / "urdf" / f"{robot.name}.urdf.xacro")).toxml()
+        return xacro.process_file(str(robot.path / "urdf" / f"{robot.name}.urdf.xacro")).toxml()  # pyright: ignore[reportAttributeAccessIssue]
     with tempfile.NamedTemporaryFile("w", suffix=".urdf.xacro", delete=False) as wrapper:
         wrapper.write(render_wrapper_xacro(robot, resolved))
     try:
-        return xacro.process_file(wrapper.name).toxml()
+        return xacro.process_file(wrapper.name).toxml()  # pyright: ignore[reportAttributeAccessIssue]
     finally:
         Path(wrapper.name).unlink()
 

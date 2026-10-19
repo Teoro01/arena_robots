@@ -18,7 +18,7 @@ from arena_robots.nav2 import (
     Nav2SubBlockYAML,
     SensorsDerivedYAML,
 )
-from launch import LaunchDescription
+from launch import LaunchDescription, SomeSubstitutionsType
 from launch.actions import GroupAction, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution
@@ -134,7 +134,7 @@ def generate_launch_description():
     def launch_setup(context, *args, **kwargs):
         tgn = task_generator_node.substitution.perform(context)
         is_planner_only = planner_only.substitution.perform(context).lower() == 'true'
-        remappings = [
+        remappings: list[tuple[SomeSubstitutionsType, SomeSubstitutionsType]] = [
             ('map_server', '/map_server'),
         ]
         if tgn:

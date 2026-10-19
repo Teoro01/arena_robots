@@ -8,14 +8,24 @@ shared base class and the ``_executor_sleep`` helper.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from rclpy.action import CancelResponse
 from rclpy.action.server import ServerGoalHandle
 from rclpy.clock import Clock
+from rclpy.node import Node
 from rclpy.task import Future
+
+if TYPE_CHECKING:
+    from tf2_ros import Buffer
+
+    from arena_robots.bringup import Bringup
 
 
 class TaskHandler[GoalT, FeedbackT, ResultT](ABC):
+    @abstractmethod
+    def __init__(self, bringup: Bringup, *, tf_buffer: Buffer, node: Node) -> None: ...
+
     @abstractmethod
     async def execute(self, goal_handle: ServerGoalHandle) -> ResultT: ...
 
@@ -23,7 +33,7 @@ class TaskHandler[GoalT, FeedbackT, ResultT](ABC):
         return CancelResponse.ACCEPT
 
 
-async def _executor_sleep(node: object, seconds: float, *, wall: bool = False) -> None:
+async def _executor_sleep(node: Node, seconds: float, *, wall: bool = False) -> None:
     """Timer-backed sleep that yields to rclpy's executor. Works inside action
     server callbacks (which run under rclpy.spin, not asyncio).
 

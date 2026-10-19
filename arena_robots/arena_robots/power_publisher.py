@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import math
+import typing
 
 import rclpy
 from arena_rclpy_mixins.lazy import LazyPublisher
 from arena_rclpy_mixins.spin import spin_node
 from arena_robots_msgs.msg import Energy, Power
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 
@@ -16,28 +18,28 @@ from sensor_msgs.msg import JointState
 class PowerPublisher(Node):
     """Instantaneous power and integrated energy from joint effort and velocity."""
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        super().__init__("power_publisher", *args, **kwargs)
+    def __init__(self, *, parameter_overrides: list[Parameter] | None = None) -> None:
+        super().__init__("power_publisher", parameter_overrides=parameter_overrides)
 
-        self._static_power_w: float = float(self.declare_parameter("static_power_w", 0.0).value)
-        self._efficiency: float = float(self.declare_parameter("drivetrain_efficiency", 1.0).value)
-        self._heating_coeff: float = float(self.declare_parameter("heating_coefficient_ch", 0.0).value)
-        self._battery_capacity_wh: float = float(self.declare_parameter("battery_capacity_wh", 0.0).value)
-        self._max_torque_nm: float = float(self.declare_parameter("max_joint_torque_nm", 15.0).value)
-        self._filter_tau_s: float = float(self.declare_parameter("filter_tau_s", 0.125).value)
+        self._static_power_w: float = float(typing.cast(float, self.declare_parameter("static_power_w", 0.0).value))
+        self._efficiency: float = float(typing.cast(float, self.declare_parameter("drivetrain_efficiency", 1.0).value))
+        self._heating_coeff: float = float(typing.cast(float, self.declare_parameter("heating_coefficient_ch", 0.0).value))
+        self._battery_capacity_wh: float = float(typing.cast(float, self.declare_parameter("battery_capacity_wh", 0.0).value))
+        self._max_torque_nm: float = float(typing.cast(float, self.declare_parameter("max_joint_torque_nm", 15.0).value))
+        self._filter_tau_s: float = float(typing.cast(float, self.declare_parameter("filter_tau_s", 0.125).value))
 
         # Physical drivetrain & rolling resistance parameters
-        self._drivetrain_damping: float = float(self.declare_parameter("drivetrain_damping", 0.0).value)
-        self._drivetrain_friction: float = float(self.declare_parameter("drivetrain_friction", 0.0).value)
-        self._rolling_resistance_crr: float = float(self.declare_parameter("rolling_resistance_crr", 0.0).value)
-        self._robot_mass_kg: float = float(self.declare_parameter("robot_mass_kg", 0.0).value)
-        self._wheel_radius_m: float = float(self.declare_parameter("wheel_radius_m", 0.0).value)
-        self._num_wheels: int = int(self.declare_parameter("num_wheels", 1).value)
+        self._drivetrain_damping: float = float(typing.cast(float, self.declare_parameter("drivetrain_damping", 0.0).value))
+        self._drivetrain_friction: float = float(typing.cast(float, self.declare_parameter("drivetrain_friction", 0.0).value))
+        self._rolling_resistance_crr: float = float(typing.cast(float, self.declare_parameter("rolling_resistance_crr", 0.0).value))
+        self._robot_mass_kg: float = float(typing.cast(float, self.declare_parameter("robot_mass_kg", 0.0).value))
+        self._wheel_radius_m: float = float(typing.cast(float, self.declare_parameter("wheel_radius_m", 0.0).value))
+        self._num_wheels: int = int(typing.cast(int, self.declare_parameter("num_wheels", 1).value))
 
         if self._num_wheels > 0 and self._robot_mass_kg > 0.0 and self._wheel_radius_m > 0.0:
             self._tau_roll_per_wheel: float = (self._rolling_resistance_crr * self._robot_mass_kg * 9.81 * self._wheel_radius_m) / float(self._num_wheels)
         else:
-            self._tau_roll_per_wheel: float = 0.0
+            self._tau_roll_per_wheel = 0.0
 
         self._filtered_mech_w: float = 0.0
         self._filtered_therm_w: float = 0.0
@@ -77,7 +79,7 @@ class PowerPublisher(Node):
         joint_total: list[float] = []
 
         for i in range(n_joints):
-            name = msg.name[i]
+            name = msg.name[i]  # pyright: ignore[reportIndexIssue]
             raw_effort = msg.effort[i] if i < len(msg.effort) else 0.0
             velocity = msg.velocity[i] if i < len(msg.velocity) else 0.0
 

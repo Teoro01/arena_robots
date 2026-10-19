@@ -90,7 +90,7 @@ class ModelParams(dict[str, typing.Any]):
         caps_dir = self._path.parent / 'caps' if self._path is not None else Path('/dev/null')
         return RobotCaps(caps_dir=caps_dir)
 
-    def _mobile(self) -> object:
+    def _mobile(self) -> MobileSpec | None:
         if 'mobile' not in self.caps.available:
             return None
         return self.caps.mobile
@@ -177,8 +177,8 @@ class ModelParams(dict[str, typing.Any]):
 
 
 class RobotView(PathView):
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
         self._cached_params: ModelParams | None = None
         self._cached_control: dict | None = None
         self._cached_assembly: assembly_mod.AssemblySpec | None = None
@@ -265,10 +265,11 @@ class RobotView(PathView):
         resolved = self._resolved(parts)
         if resolved is None:
             return self.model_params.sensors
+        assert self.assembly is not None
         resolved = assembly_mod.apply_frame_overrides(resolved, frames or {})
         prefix = self.assembly.prefix
         rendered = render_effective_sensors(resolved, _CATALOG, prefix=prefix)
-        defaults_rendered = rendered if not parts else render_effective_sensors(self._resolved({}), _CATALOG, prefix=prefix)
+        defaults_rendered = rendered if not parts else render_effective_sensors(assembly_mod.resolve(self.assembly, {}), _CATALOG, prefix=prefix)
         missing = {s.name for s in self.model_params.sensors} - {s.name for s in defaults_rendered}
         if missing:
             print(
@@ -286,6 +287,7 @@ class RobotView(PathView):
         resolved = self._resolved(parts)
         if resolved is None:
             return self.caps
+        assert self.assembly is not None
         resolved = assembly_mod.apply_frame_overrides(resolved, frames or {})
         return RobotCaps(self.caps.caps_dir, resolved=resolved, catalog=_CATALOG, prefix=self.assembly.prefix)
 
@@ -293,7 +295,8 @@ class RobotView(PathView):
         """Power-publisher parameters, chassis block plus resolved component draw. ``None`` when unpowered."""
         telemetry_yaml = self.path / 'telemetry' / 'power.yaml'
         has_telemetry = telemetry_yaml.is_file()
-        has_assembly_power = self.assembly is not None and self.assembly.power is not None
+        assembly_power = self.assembly.power if self.assembly is not None else None
+        has_assembly_power = assembly_power is not None
 
         if not has_telemetry and not has_assembly_power:
             return None
@@ -336,8 +339,8 @@ class RobotView(PathView):
                 pass
 
         # 2. Backward-compatible fallback / override from assembly.yaml power:
-        if has_assembly_power:
-            spec = self.assembly.power
+        if assembly_power is not None:
+            spec = assembly_power
             if static_w == 0.0:
                 static_w = spec.compute_core_w + spec.idle_motors_w
             if efficiency == 1.0 and spec.drivetrain_efficiency != 1.0:
@@ -364,7 +367,10 @@ class RobotView(PathView):
         if resolved is not None:
             for placement in resolved.placements:
                 component = _CATALOG.get(placement.type, placement.variant)
-                static_w += float(component.power.get('static_power_w', 0.0))
+                draw = component.power.get('static_power_w', 0.0)
+                if not isinstance(draw, (int, float)):
+                    raise ValueError(f"component {placement.type}/{placement.variant}: 'power.static_power_w' must be a number; got {type(draw).__name__}")
+                static_w += float(draw)
 
         # 4. Fallback for mass from model_params
         if mass_kg == 0.0 and "mass" in self.model_params:

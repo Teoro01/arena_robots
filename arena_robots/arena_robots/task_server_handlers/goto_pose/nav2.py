@@ -14,6 +14,10 @@ from arena_robots.lockstep_beat import LockstepBeat
 from arena_robots.task_server_handlers import TaskHandler, _executor_sleep
 
 if TYPE_CHECKING:
+    from rclpy.action.server import ServerGoalHandle
+    from rclpy.node import Node
+    from tf2_ros import Buffer
+
     from arena_robots.bringup.mobile.nav2 import Nav2Bringup
 
 _NAV2_RETRY_BACKOFF_SEC = 0.5
@@ -29,7 +33,7 @@ def _translate_nav2_status(nav2_status: int) -> tuple[int, str]:
 
 
 class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose.Result]):
-    def __init__(self, bringup: Nav2Bringup, *, tf_buffer: object, node: object) -> None:
+    def __init__(self, bringup: Nav2Bringup, *, tf_buffer: Buffer, node: Node) -> None:
         self._bringup = bringup
         self._tf_buffer = tf_buffer
         self._node = node
@@ -46,6 +50,7 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
         period = None
         if client.service_is_ready():
             response = await client.call_async(GetParameters.Request(names=["controller_frequency"]))
+            assert response is not None
             values = response.values
             if values and values[0].type == ParameterType.PARAMETER_DOUBLE and values[0].double_value > 0.0:
                 period = 1.0 / values[0].double_value
@@ -55,7 +60,7 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
         self._beat_period = period
         return period
 
-    async def execute(self, goal_handle: object) -> GotoPose.Result:
+    async def execute(self, goal_handle: ServerGoalHandle) -> GotoPose.Result:
         arena_goal: GotoPose.Goal = goal_handle.request
         nav2_goal = NavigateToPose.Goal()
         nav2_goal.pose = arena_goal.target
@@ -76,8 +81,8 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
         finally:
             await self._beat.release()
 
-    async def _dispatch(self, goal_handle: object, nav2_goal: NavigateToPose.Goal, result: GotoPose.Result) -> GotoPose.Result:
-        def _on_nav2_feedback(fb_msg: object) -> None:
+    async def _dispatch(self, goal_handle: ServerGoalHandle, nav2_goal: NavigateToPose.Goal, result: GotoPose.Result) -> GotoPose.Result:
+        def _on_nav2_feedback(fb_msg: NavigateToPose.Impl.FeedbackMessage) -> None:
             fb = fb_msg.feedback
             arena_fb = GotoPose.Feedback()
             arena_fb.current_pose = fb.current_pose
@@ -100,7 +105,7 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
             send_future = self._native_client.send_goal_async(nav2_goal, feedback_callback=_on_nav2_feedback)
             nav2_goal_handle = await send_future
 
-            if not nav2_goal_handle.accepted:
+            if nav2_goal_handle is None or not nav2_goal_handle.accepted:
                 self._node.get_logger().info("nav2 rejected goal; retrying")
                 await _executor_sleep(self._node, _NAV2_RETRY_BACKOFF_SEC)
                 continue

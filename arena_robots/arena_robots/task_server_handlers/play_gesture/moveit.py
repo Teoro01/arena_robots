@@ -17,7 +17,12 @@ from arena_robots.lockstep_beat import LockstepBeat
 from arena_robots.task_server_handlers import TaskHandler, _executor_sleep
 
 if TYPE_CHECKING:
+    from rclpy.action.server import ServerGoalHandle
+    from rclpy.node import Node
+    from tf2_ros import Buffer
+
     from arena_robots.bringup.arm.moveit import MoveItArmBringup
+    from arena_robots.caps import ArmSpec
 
 _ARM_BEAT_PERIOD = 0.1
 
@@ -38,7 +43,7 @@ def _translate_fjt_status(error_code: int) -> tuple[int, str]:
     return PlayGesture.Result.STATUS_ABORTED, f"FJT: error code {error_code}"
 
 
-def _build_movegroup_goal(arm: object, joints: dict[str, float]) -> MoveGroup.Goal:
+def _build_movegroup_goal(arm: ArmSpec, joints: dict[str, float]) -> MoveGroup.Goal:
     constraints = Constraints()
     for joint_name, position in joints.items():
         jc = JointConstraint()
@@ -47,12 +52,12 @@ def _build_movegroup_goal(arm: object, joints: dict[str, float]) -> MoveGroup.Go
         jc.tolerance_above = 0.01
         jc.tolerance_below = 0.01
         jc.weight = 1.0
-        constraints.joint_constraints.append(jc)
+        constraints.joint_constraints.append(jc)  # pyright: ignore[reportAttributeAccessIssue]
 
     mg = MoveGroup.Goal()
     mg.request = MotionPlanRequest()
     mg.request.group_name = arm.planning_group or arm.name
-    mg.request.goal_constraints.append(constraints)
+    mg.request.goal_constraints.append(constraints)  # pyright: ignore[reportAttributeAccessIssue]
     mg.request.allowed_planning_time = 5.0
     mg.request.num_planning_attempts = 5
     mg.request.max_velocity_scaling_factor = 1.0
@@ -76,7 +81,7 @@ def _translate_moveit_status(code: int) -> str:
     return f"MoveIt: error code {code}"
 
 
-def _build_trajectory(gesture: GestureSpec, arm: object) -> JointTrajectory:
+def _build_trajectory(gesture: GestureSpec, arm: ArmSpec) -> JointTrajectory:
     chain: list[str] = arm.chain
     named_poses: dict[str, dict[str, float]] = arm.named_poses
 
@@ -95,13 +100,13 @@ def _build_trajectory(gesture: GestureSpec, arm: object) -> JointTrajectory:
             sec=sec,
             nanosec=int((t_total - sec) * 1e9),
         )
-        traj.points.append(pt)
+        traj.points.append(pt)  # pyright: ignore[reportAttributeAccessIssue]
 
     return traj
 
 
 class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedback, PlayGesture.Result]):
-    def __init__(self, bringup: MoveItArmBringup, *, tf_buffer: object, node: object) -> None:
+    def __init__(self, bringup: MoveItArmBringup, *, tf_buffer: Buffer, node: Node) -> None:
         del tf_buffer
         self._bringup = bringup
         self._node = node
@@ -111,11 +116,14 @@ class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedbac
             node.create_subscription(
                 JointTrajectoryControllerState,
                 str(bringup.arm_namespace(mount)(arm.controller, "controller_state")),
-                lambda msg: self._beat.pulse(msg.header.stamp),
+                self._on_controller_state,
                 10,
             )
 
-    async def execute(self, goal_handle: object) -> PlayGesture.Result:
+    def _on_controller_state(self, msg: JointTrajectoryControllerState) -> None:
+        self._beat.pulse(msg.header.stamp)
+
+    async def execute(self, goal_handle: ServerGoalHandle) -> PlayGesture.Result:
         arena_goal: PlayGesture.Goal = goal_handle.request
         result = PlayGesture.Result()
 
@@ -172,16 +180,16 @@ class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedbac
 
     async def _dispatch(
         self,
-        goal_handle: object,
+        goal_handle: ServerGoalHandle,
         mg_client: ActionClient,
         mg_goal: MoveGroup.Goal,
         gesture: GestureSpec,
-        arm: object,
+        arm: ArmSpec,
         mount: str,
         result: PlayGesture.Result,
     ) -> PlayGesture.Result:
         mg_handle = await mg_client.send_goal_async(mg_goal)
-        if not mg_handle.accepted:
+        if mg_handle is None or not mg_handle.accepted:
             goal_handle.abort()
             result.status = PlayGesture.Result.STATUS_ABORTED
             result.reason = "MoveIt transition goal rejected"
@@ -231,7 +239,7 @@ class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedbac
         fjt_goal.trajectory = traj
 
         fjt_handle = await fjt_client.send_goal_async(fjt_goal)
-        if not fjt_handle.accepted:
+        if fjt_handle is None or not fjt_handle.accepted:
             goal_handle.abort()
             result.status = PlayGesture.Result.STATUS_ABORTED
             result.reason = "FollowJointTrajectory goal rejected"

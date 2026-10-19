@@ -100,7 +100,7 @@ class Config:
 class RobotSetupResolver(ResolverBase):
     base_path = ARENA_ROBOTS_DIR / 'config' / 'setup'
 
-    async def resolve(self, identifier: object) -> Path | None:
+    async def resolve(self, identifier: RobotSetupIdentifier) -> Path | None:
         target_path = self.base_path / f'{identifier.name}.yaml'
         if target_path.exists():
             return target_path

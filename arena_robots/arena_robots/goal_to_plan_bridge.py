@@ -8,6 +8,8 @@ action and re-issues them so `/plan` tracks the robot as it moves.
 
 from __future__ import annotations
 
+import typing
+
 import rclpy
 from action_msgs.msg import GoalStatus
 from arena_rclpy_mixins.spin import spin_node
@@ -17,16 +19,17 @@ from rclpy.action import ActionClient
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.task import Future
 
 
 class GoalToPlanBridge(Node):
     def __init__(self) -> None:
         super().__init__("goal_to_plan_bridge")
 
-        goal_topic = self.declare_parameter("goal_topic", "goal_pose").value
-        action_name = self.declare_parameter("action_name", "compute_path_to_pose").value
-        replan_period = float(self.declare_parameter("replan_period", 1.0).value)
-        self._inflight_timeout = float(self.declare_parameter("inflight_timeout", 5.0).value)
+        goal_topic = typing.cast(str, self.declare_parameter("goal_topic", "goal_pose").value)
+        action_name = typing.cast(str, self.declare_parameter("action_name", "compute_path_to_pose").value)
+        replan_period = float(typing.cast(float, self.declare_parameter("replan_period", 1.0).value))
+        self._inflight_timeout = float(typing.cast(float, self.declare_parameter("inflight_timeout", 5.0).value))
         self._planner_id = self.declare_parameter("planner_id", "").value
 
         self._goal: PoseStamped | None = None
@@ -69,17 +72,19 @@ class GoalToPlanBridge(Node):
         self._sent_seq = self._goal_seq
         self._client.send_goal_async(goal).add_done_callback(self._on_sent)
 
-    def _on_sent(self, future: object) -> None:
+    def _on_sent(self, future: Future) -> None:
         handle = future.result()
-        if not handle.accepted:
+        if handle is None or not handle.accepted:
             self._in_flight_since = None
             self.get_logger().warning("compute_path_to_pose rejected the goal", throttle_duration_sec=5.0)
             return
         handle.get_result_async().add_done_callback(self._on_result)
 
-    def _on_result(self, future: object) -> None:
+    def _on_result(self, future: Future) -> None:
         self._in_flight_since = None
         wrapped = future.result()
+        if wrapped is None:
+            return
         if wrapped.status != GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().warning(f"compute_path_to_pose failed (status {wrapped.status}, error {wrapped.result.error_code} {wrapped.result.error_msg!r})", throttle_duration_sec=5.0)
             return

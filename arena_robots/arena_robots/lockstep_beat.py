@@ -17,6 +17,7 @@ from builtin_interfaces.msg import Time as TimeMsg
 from rclpy.clock import Clock
 from rclpy.duration import Duration
 from rclpy.exceptions import InvalidHandle
+from rclpy.node import Node
 from rclpy.time import Time
 
 from arena_robots.task_server_handlers import _executor_sleep
@@ -30,7 +31,7 @@ _GRACE_S = 2.0
 class LockstepBeat:
     def __init__(
         self,
-        node: object,
+        node: Node,
         kind: str,
         *,
         grace_s: float | None = _GRACE_S,
@@ -100,7 +101,7 @@ class LockstepBeat:
         self._pub.publish(msg)
 
     def _watchdog(self) -> None:
-        if self._active <= 0 or not self._registered:
+        if self._active <= 0 or not self._registered or self._grace_s is None:
             return
         wall = self._wall.now()
         silent = (wall - self._last_pulse).nanoseconds * 1e-9
@@ -140,6 +141,7 @@ class LockstepBeat:
                 return False
             await self._wait(0.1)
         response = call.result()
+        assert response is not None
         if not response.success:
             self._node.get_logger().warning(f"lockstep beat {self._name}: registration failed: {response.error_msg}")
             return False

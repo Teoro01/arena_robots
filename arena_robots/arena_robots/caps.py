@@ -29,7 +29,8 @@ import yaml
 from arena_rclpy_mixins.yaml_replace import YAMLReplacer
 from arena_simulation_setup.tree.Gesture import GestureSpec
 
-from arena_robots.catalog import _frame_stem, resolve_mount_parent
+from arena_robots.assembly import ResolvedAssembly
+from arena_robots.catalog import Catalog, _frame_stem, resolve_mount_parent
 
 _CAPS_PREFIX = 'robot_'
 """Frame-templating prefix for placement-rendered caps; matches
@@ -608,8 +609,8 @@ class RobotCaps:
     """
 
     caps_dir: Path
-    resolved: object | None = None
-    catalog: object | None = None
+    resolved: ResolvedAssembly | None = None
+    catalog: Catalog | None = None
     # chassis assembly prefix (${prefix}); robots with no prefix convention (jackal) pass ""
     prefix: str = _CAPS_PREFIX
 
@@ -622,6 +623,7 @@ class RobotCaps:
         file_stems = frozenset(p.stem for p in self.caps_dir.glob('*.yaml')) if self.caps_dir.is_dir() else frozenset()
         if self.resolved is None:
             return file_stems
+        assert self.catalog is not None
         placed = frozenset(placement.type for placement in self.resolved.placements if self.catalog.get(placement.type, placement.variant).caps)
         return file_stems | placed
 
@@ -662,6 +664,7 @@ class RobotCaps:
     ) -> dict[str, typing.Any] | None:
         placements = [p for p in self.resolved.placements if p.type == cap] if self.resolved is not None else []
         if placements:
+            assert self.resolved is not None and self.catalog is not None
             path = self.caps_dir / f'{cap}.yaml'
             out: dict[str, typing.Any] = {}
             for placement in placements:
@@ -676,6 +679,8 @@ class RobotCaps:
                 }
                 rendered = YAMLReplacer(context).replace(copy.deepcopy(component.caps))
                 rendered = _substitute_keys(rendered, context)
+                if not isinstance(rendered, dict):
+                    raise ValueError(f"{placement.type} component {placement.variant!r}: 'caps' must render to a mapping; got {type(rendered).__name__}")
                 out[placement.mount.name] = cls(path=path, raw=rendered, name=placement.mount.name)
             return out
 

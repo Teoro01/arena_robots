@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-import rclpy.node
+from typing import TYPE_CHECKING
+
 import tf2_ros
+from arena_robots_msgs.action import ReachPose
+from rclpy.task import Future
 
 from arena_robots.clients import Client
 from arena_robots.Robot import RobotView
 from arena_robots.task_kinds import TaskKind, action_type, endpoint
 
+if TYPE_CHECKING:
+    from arena_rclpy_mixins.Async import AsyncNode
+
 
 class ReachPoseClient(Client):
     task_kind = TaskKind.REACH_POSE
 
-    def __init__(self, robot: RobotView, namespace: str, *, node: rclpy.node.Node, tf_buffer: tf2_ros.Buffer) -> None:
+    def __init__(self, robot: RobotView, namespace: str, *, node: AsyncNode, tf_buffer: tf2_ros.Buffer) -> None:
         super().__init__(robot, namespace, node=node, tf_buffer=tf_buffer)
         self._action = node.create_action_client_wrapper(
             action_type(self.task_kind),
@@ -47,6 +53,8 @@ class ReachPoseClient(Client):
         if self._goal_handle is None:
             raise RuntimeError("No goal in flight; call send_goal first.")
         result_response = await self._action.await_result(self._goal_handle)
+        if not isinstance(result_response, ReachPose.Impl.GetResultService.Response):
+            raise TypeError(f"unexpected result type {type(result_response).__name__} from {self.action_endpoint()!r}")
         self._result = result_response.result
         if result_response.result is not None:
             self._status = result_response.result.status
@@ -76,15 +84,18 @@ class ReachPoseClient(Client):
     def feedback(self) -> object:
         return self._feedback
 
-    def _on_feedback(self, msg: object) -> None:
+    def _on_feedback(self, msg: ReachPose.Impl.FeedbackMessage) -> None:
         self._feedback = msg.feedback
 
-    def _on_result(self, future: object) -> None:
+    def _on_result(self, future: Future) -> None:
         if future is not self._result_future:
             return
         try:
             result_response = future.result()
         except Exception:
+            self._done = True
+            return
+        if result_response is None:
             self._done = True
             return
         self._result = result_response.result

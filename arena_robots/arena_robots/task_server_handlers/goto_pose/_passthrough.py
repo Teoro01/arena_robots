@@ -6,12 +6,16 @@ from typing import TYPE_CHECKING, ClassVar
 import rclpy.time
 import tf2_ros
 from arena_robots_msgs.action import GotoPose
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PoseStamped, Quaternion, Twist
 
 from arena_robots.lockstep_beat import LockstepBeat
 from arena_robots.task_server_handlers import TaskHandler, _executor_sleep
 
 if TYPE_CHECKING:
+    from rclpy.action.server import ServerGoalHandle
+    from rclpy.node import Node
+    from tf2_ros import Buffer
+
     from arena_robots.bringup.mobile.drl import DrlBringup
     from arena_robots.bringup.mobile.external import ExternalBringup
     from arena_robots.bringup.mobile.none import NoneBringup
@@ -25,13 +29,13 @@ _PASSTHROUGH_BEAT_PERIOD = 0.25
 class _PassthroughHandler(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose.Result]):
     """Publish the goal and succeed instantly, for bringups where no stack drives toward it."""
 
-    def __init__(self, bringup: NoneBringup | ExternalBringup | RosnavRlBringup | DrlBringup, *, tf_buffer: object, node: object) -> None:
+    def __init__(self, bringup: NoneBringup | ExternalBringup | RosnavRlBringup | DrlBringup, *, tf_buffer: Buffer, node: Node) -> None:
         self._bringup = bringup
         self._tf_buffer = tf_buffer
         self._node = node
         self._pub = node.create_publisher(PoseStamped, bringup.goal_topic, 1)
 
-    async def execute(self, goal_handle: object) -> GotoPose.Result:
+    async def execute(self, goal_handle: ServerGoalHandle) -> GotoPose.Result:
         arena_goal: GotoPose.Goal = goal_handle.request
         self._pub.publish(arena_goal.target)
         goal_handle.succeed()
@@ -49,16 +53,17 @@ class _GoalWindowHandler(_PassthroughHandler):
 
     _PROXY_BEAT: ClassVar[bool] = True
 
-    def __init__(self, bringup: ExternalBringup | RosnavRlBringup | DrlBringup, *, tf_buffer: object, node: object) -> None:
+    def __init__(self, bringup: ExternalBringup | RosnavRlBringup | DrlBringup, *, tf_buffer: Buffer, node: Node) -> None:
         super().__init__(bringup, tf_buffer=tf_buffer, node=node)
         self._base_frame = bringup.frame + bringup.robot.model_params.base_frame
         self._active_token: object | None = None
         self._beat: LockstepBeat | None = None
         if self._PROXY_BEAT:
-            self._beat = LockstepBeat(node, "nav")
-            node.create_subscription(Twist, str(bringup.namespace("cmd_vel")), lambda _msg: self._beat.pulse(), 10)
+            beat = LockstepBeat(node, "nav")
+            self._beat = beat
+            node.create_subscription(Twist, str(bringup.namespace("cmd_vel")), lambda _msg: beat.pulse(), 10)
 
-    async def execute(self, goal_handle: object) -> GotoPose.Result:
+    async def execute(self, goal_handle: ServerGoalHandle) -> GotoPose.Result:
         arena_goal: GotoPose.Goal = goal_handle.request
         self._pub.publish(arena_goal.target)
         token = object()
@@ -129,7 +134,7 @@ class _GoalWindowHandler(_PassthroughHandler):
         if tol <= 0.0:
             return True
 
-        def yaw(q: object) -> float:
+        def yaw(q: Quaternion) -> float:
             return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
         delta = yaw(pose.pose.orientation) - yaw(arena_goal.target.pose.orientation)

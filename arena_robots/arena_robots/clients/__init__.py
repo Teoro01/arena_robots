@@ -15,8 +15,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
-    import rclpy.node
     import tf2_ros
+    from arena_rclpy_mixins.Async import AsyncNode
 
     from arena_robots.Robot import RobotView
 
@@ -33,7 +33,7 @@ class Client(ABC):
         robot: RobotView,
         namespace: str,
         *,
-        node: rclpy.node.Node,
+        node: AsyncNode,
         tf_buffer: tf2_ros.Buffer,
     ) -> None:
         self.robot = robot
@@ -70,7 +70,7 @@ class Client(ABC):
         return None
 
     @property
-    def feedback(self):
+    def feedback(self) -> object:
         return None
 
 

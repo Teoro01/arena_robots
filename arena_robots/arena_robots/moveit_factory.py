@@ -6,6 +6,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import TYPE_CHECKING
 
 import xacro
 import yaml
@@ -16,6 +17,9 @@ from moveit_configs_utils import MoveItConfigsBuilder
 import arena_robots.Robot
 from arena_robots.caps import _substitute_keys
 from arena_robots.catalog import render_wrapper_xacro
+
+if TYPE_CHECKING:
+    from arena_robots.assembly import ResolvedAssembly
 
 
 def _prefix_urdf_links(urdf_xml: str, tf_prefix: str) -> str:
@@ -77,7 +81,7 @@ def _prefix_srdf_links(srdf_xml: str, tf_prefix: str) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
-def _select_arm(robot_name: str, arms: dict[str, object], instance: str | None) -> tuple[str, object]:
+def _select_arm[T](robot_name: str, arms: dict[str, T], instance: str | None) -> tuple[str, T]:
     """Pick one ``(key, entry)`` pair out of ``arms`` (``RobotCaps.arm``-shaped).
     ``None`` selects the sole entry, or raises ``ValueError`` (listing available
     instances) when there are several; an unknown ``instance`` raises ``KeyError``.
@@ -105,17 +109,17 @@ def _compose_srdf(
     (per-placement ``(fragment, context)`` pairs, e.g. a gripper chained onto the arm)
     under one ``<robot>`` element. Returns the path to a temp file holding the
     composed document."""
-    fragment_xml = xacro.process_file(str(fragment_path), mappings={k: str(v) for k, v in context.items()}).toxml()
+    fragment_xml = xacro.process_file(str(fragment_path), mappings={k: str(v) for k, v in context.items()}).toxml()  # pyright: ignore[reportAttributeAccessIssue]
     merged = ET.Element("robot", {"name": robot.name})
     merged.extend(list(ET.fromstring(fragment_xml)))
 
     for extra_path, extra_context in extras or []:
-        extra_xml = xacro.process_file(str(extra_path), mappings={k: str(v) for k, v in extra_context.items()}).toxml()
+        extra_xml = xacro.process_file(str(extra_path), mappings={k: str(v) for k, v in extra_context.items()}).toxml()  # pyright: ignore[reportAttributeAccessIssue]
         merged.extend(list(ET.fromstring(extra_xml)))
 
     base_srdf = robot.path / "srdf" / f"{robot.name}.srdf.xacro"
     if base_srdf.is_file():
-        base_xml = xacro.process_file(str(base_srdf)).toxml()
+        base_xml = xacro.process_file(str(base_srdf)).toxml()  # pyright: ignore[reportAttributeAccessIssue]
         merged.extend(list(ET.fromstring(base_xml)))
 
     with NamedTemporaryFile(mode="w", suffix=".srdf", delete=False) as f:
@@ -123,7 +127,7 @@ def _compose_srdf(
         return Path(f.name)
 
 
-def _gripper_srdf_extras(resolved: object, arm_mount: str, prefix: str) -> list[tuple[Path, dict[str, str]]]:
+def _gripper_srdf_extras(resolved: ResolvedAssembly, arm_mount: str, prefix: str) -> list[tuple[Path, dict[str, str]]]:
     """``(fragment, context)`` per gripper placement chained onto ``arm_mount`` whose
     component caps declare a ``moveit.srdf`` fragment. The context adds ``arm`` (the
     carrying arm's frame stem) beside the usual prefix/mount, for the fragment's
@@ -141,7 +145,9 @@ def _gripper_srdf_extras(resolved: object, arm_mount: str, prefix: str) -> list[
         chained = placement.mount.chained_parent
         if chained is None or chained[0] != arm_mount:
             continue
-        mv = (catalog.get(placement.type, placement.variant).caps or {}).get("moveit") or {}
+        mv = (catalog.get(placement.type, placement.variant).caps or {}).get("moveit")
+        if not isinstance(mv, dict):
+            continue
         srdf_ref = mv.get("srdf") or {}
         if "path" not in srdf_ref:
             continue
@@ -237,7 +243,7 @@ def build_moveit_params(robot_name: str, tf_prefix: str = "", parts: dict[str, l
         srdf_abs = _compose_srdf(robot, srdf_abs, placement_context, extras)
         jl_abs = _render_joint_limits(jl_abs, placement_context)
 
-    moveit_config = MoveItConfigsBuilder(robot_name="ur", package_name=pkg).robot_description(file_path=str(urdf_abs), mappings=mappings).robot_description_semantic(srdf_abs, mappings=mappings).joint_limits(jl_abs).to_moveit_configs()
+    moveit_config = MoveItConfigsBuilder(robot_name="ur", package_name=pkg).robot_description(file_path=str(urdf_abs), mappings=mappings).robot_description_semantic(str(srdf_abs), mappings=mappings).joint_limits(str(jl_abs)).to_moveit_configs()  # pyright: ignore[reportArgumentType]
     params = moveit_config.to_dict()
 
     if tf_prefix:

@@ -97,7 +97,8 @@ class PowerSpec:
         missing = required - set(data)
         if missing:
             raise AssemblyError(f"assembly.yaml 'power' is missing keys {sorted(missing)}")
-        return cls(**{k: (int(v) if k == "num_wheels" else float(v)) for k, v in data.items()})
+        values = {k: float(v) for k, v in data.items() if k != "num_wheels"}
+        return cls(**values, num_wheels=int(data.get("num_wheels", 1)))
 
 
 @attrs.define
@@ -388,7 +389,7 @@ def resolve(
                 continue
             inventory = ", ".join(f"{m.name} accepts {sorted(m.accepts)}" for m in spec.mounts.values()) or "(no mounts declared)"
             raise AssemblyError(f"robot declares no '{t}' mounts; mount inventory: {inventory}")
-        default_params = {(d.mount, d.variant): d.params for d in spec.defaults.get(t, []) if d.mount is not None}
+        default_params: dict[tuple[str | None, str], dict[str, object]] = {(d.mount, d.variant): d.params for d in spec.defaults.get(t, []) if d.mount is not None}
         effective.setdefault(t, []).extend(_Item(type=t, variant=p.variant, mount=p.mount, params=dict(default_params.get((p.mount, p.variant), {})), overrides=p.overrides, local_index=i) for i, p in enumerate(requested))
 
     flat: list[_Item] = [item for parts in effective.values() for item in parts]
