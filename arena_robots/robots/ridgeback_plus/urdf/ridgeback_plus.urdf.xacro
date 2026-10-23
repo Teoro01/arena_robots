@@ -15,10 +15,18 @@
 
   <!-- UR arm mounted on chassis_link (top deck at z=0.280 per r100 deck_height) -->
   <!-- TODO: verify arm mount pose against physical hardware -->
-  <xacro:include filename="$(find clearpath_manipulators_description)/urdf/arm/universal_robots.urdf.xacro"/>
-  <xacro:universal_robots name="arm" parent_link="chassis_link" ur_type="$(arg ur_type)">
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+  <xacro:ur_robot
+      name="arm"
+      tf_prefix="arm_"
+      parent="chassis_link"
+      joint_limits_parameters_file="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"
+      kinematics_parameters_file="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"
+      physical_parameters_file="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"
+      visual_parameters_file="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"
+      generate_ros2_control_tag="false">
     <origin xyz="0 0 0.280" rpy="0 0 0"/>
-  </xacro:universal_robots>
+  </xacro:ur_robot>
 
   <!-- ros2_control system definition (wheels + arm joints) -->
   <xacro:include filename="$(find arena_robots)/robots/ridgeback_plus/urdf/base_hw/ridgeback_plus.ros2_control.urdf"/>
