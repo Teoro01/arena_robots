@@ -292,7 +292,7 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
 class Nav2SubBlockYAML(YAMLFileSubstitution):
     """Extract the `nav2:` sub-block from caps/mobile.yaml and emit it at top level
     as a temp YAML file. Lets YAMLMergeSubstitution treat adapter-specific config
-    (footprint, polygons*, planner_plugins*) as flat merge-time keys while they
+    (global_observation) as flat merge-time keys while they
     stay nested in the authored file."""
 
     def __init__(self, mobile_path: launch.SomeSubstitutionsType):

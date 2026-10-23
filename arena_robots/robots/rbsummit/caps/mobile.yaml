@@ -57,17 +57,6 @@ actions:
   - angular: 0.0
     linear: 0.0
     name: stop
-
-nav2:
-  planner_plugins:
-    - GridBased
-  planner_plugins_dict:
-    GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.5
-      use_astar: false
-      allow_unknown: true
-
 laser:
   angle:
     increment: 0.0034906585

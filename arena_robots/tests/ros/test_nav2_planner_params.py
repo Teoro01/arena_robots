@@ -62,7 +62,7 @@ def test_navfn_plans_with_dijkstra(robot: str) -> None:
     assert params["GridBased"]["use_astar"] is False
 
 
-def test_selected_planner_overrides_caps_planner_block() -> None:
+def test_selected_planner_sets_the_planner_plugin() -> None:
     params = _planner_params("jackal", "smac_2d")
     assert params["GridBased"]["plugin"] == "nav2_smac_planner::SmacPlanner2D"
     assert params["GridBased"]["tolerance"] == 0.125

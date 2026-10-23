@@ -3,7 +3,7 @@ xacro:
   macro: rplidar
   attach:
     name: "${mount}"
-    parent_link: "${parent}"
+    parent_link: "${prefix}${parent}"
     gazebo: "true"
   args: {}
 sensor:

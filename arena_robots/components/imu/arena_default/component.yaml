@@ -4,7 +4,7 @@ xacro:
   include: "$(find arena_robots)/components/imu/arena_default/imu.urdf.xacro"
   macro: arena_default_imu_mount
   attach:
-    parent_link: "${parent}"
+    parent_link: "${prefix}${parent}"
     frame: "${frame:-imu_link}"
     update_rate: "${update_rate:-100}"
   args:

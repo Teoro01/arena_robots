@@ -76,7 +76,9 @@ variant of `caps/arm.yaml`.
 A robot has exactly one mobile base by construction. All robot-physical
 primitives live at top level; adapter sub-blocks are reserved for
 adapter-specific wiring only. `actions` and `laser` are top-level fields. The
-`nav2:` sub-block carries only planner plugin wiring.
+optional `nav2:` sub-block carries nav2-only wiring such as
+`global_observation`. The global planner's settings come from the selected
+planner config.
 
 ```yaml
 odom_frame: odom
@@ -112,9 +114,8 @@ planar:
   pivot: 0.131
   timeout: 0.25
 
-nav2:                      # planner plugin wiring only
-  planner_plugins: [GridBased]
-  planner_plugins_dict: {...}
+nav2:                      # optional, nav2-only wiring
+  global_observation: {...}
 ```
 
 `velocity_limits` and `acceleration_limits` flow into nav2 controller configs

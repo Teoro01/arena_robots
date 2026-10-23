@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
-from arena_robots.assembly import RequestPart
+import yaml
+from arena_robots.assembly import AssemblySpec, RequestPart
+from arena_robots.catalog import ComponentSpec
 from arena_robots.Robot import RobotIdentifier
-from arena_robots.sensor_geometry import parse_sensor_geometry, sensor_geometry
+from arena_robots.sensor_geometry import parse_sensor_geometry, render_urdf, sensor_geometry
 
 PKG = Path(__file__).resolve().parents[2] / "arena_robots"
 ROBOTS_DIR = PKG / "robots"
 GOLDEN_DIR = Path(__file__).parent / "golden"
 GOLDEN_ROBOTS = sorted(p.name.removesuffix("_default.urdf") for p in GOLDEN_DIR.glob("*_default.urdf"))
 ALL_ROBOTS = sorted(p.name for p in ROBOTS_DIR.iterdir() if (p / "model_params.yaml").is_file())
+COMPONENTS = sorted(p.parent.relative_to(PKG / "components").as_posix() for p in (PKG / "components").glob("*/*/component.yaml"))
+ASSEMBLIES = {p.parent.name: AssemblySpec.parse(yaml.safe_load(p.read_text()) or {}) for p in sorted(ROBOTS_DIR.glob("*/assembly.yaml"))}
 _RANGING = {"laserscan", "pointcloud"}
 
 
@@ -94,3 +99,33 @@ def test_pinned_default_request_renders_like_the_defaults(robot, require_install
     for placement in resolved.placements:
         pinned.setdefault(placement.type, []).append(RequestPart(variant=placement.variant, mount=placement.mount.name, overrides=placement.overrides))
     assert sensor_geometry(view, pinned) == sensor_geometry(view, {})
+
+
+def _dangling_parents(urdf: str) -> list[str]:
+    root = ET.fromstring(urdf)
+    links = {link.get("name") for link in root.iter("link")}
+    return sorted({parent.get("link") for joint in root.iter("joint") for parent in joint.iter("parent")} - links)
+
+
+def _prefixed_host(part: str, variant: str, robot_local: bool) -> tuple[str, str] | None:
+    """A robot with a frame prefix and an unchained mount taking the part, one whose defaults place it for a robot-local include."""
+    for name, spec in ASSEMBLIES.items():
+        if spec.prefix and (not robot_local or any(default.variant == variant for default in spec.defaults.get(part, []))):
+            for mount in spec.mounts.values():
+                if part in mount.accepts and mount.chained_parent is None:
+                    return name, mount.name
+    return None
+
+
+@pytest.mark.parametrize("component", COMPONENTS)
+def test_component_on_a_prefixed_chassis_hangs_off_its_prefixed_parent(component, require_installed):
+    pytest.importorskip("xacro")
+    part, name = component.split("/")
+    spec = ComponentSpec.from_yaml(PKG / "components" / component / "component.yaml")
+    variant = spec.variants[0] if spec.variants else name
+    host = _prefixed_host(part, variant, not spec.xacro_include.startswith("$(") and not Path(spec.xacro_include).is_absolute())
+    if host is None:
+        pytest.skip(f"no robot with a frame prefix mounts {component}")
+    robot, mount = host
+    require_installed(robot)
+    assert _dangling_parents(render_urdf(RobotIdentifier(robot).resolve_sync(), {part: [RequestPart(variant=variant, mount=mount)]})) == []

@@ -79,11 +79,3 @@ nav2:
     min_obstacle_height: 0.2
     obstacle_max_range: 5.0
     raytrace_max_range: 12.0
-  planner_plugins:
-    - GridBased
-  planner_plugins_dict:
-    GridBased:
-      plugin: nav2_navfn_planner::NavfnPlanner
-      tolerance: 0.5
-      use_astar: false
-      allow_unknown: true

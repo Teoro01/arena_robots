@@ -42,8 +42,8 @@ variants: [...]           # family component: variant names this one dir serves,
   sensors (e.g. an RGBD camera bundling an IMU).
 - **Sim-only sensors** (rendered under gz but unbridged, e.g. GPS/navsat): the macro renders
   them, `sensor.gz` omits them; no SensorSpec, no bridge row.
-- **No-prefix components** (`lidar/arena_default`, `imu/arena_default`): omit `${prefix}`
-  templating entirely since none of their placing robots use a frame-prefix convention.
+- **Parent link**: every attach template names its parent `${prefix}${parent}`, so the
+  component hangs off the chassis link whatever the robot's frame prefix.
 - **Arm components** contribute four artifacts (`xacro`, `ros2_control.joints`, `control`,
   `caps`). The chassis and every placed component each render their own `ros2_control`
   tag normally (no gating xacro:arg needed on either side); `ros2_control.joints` is a

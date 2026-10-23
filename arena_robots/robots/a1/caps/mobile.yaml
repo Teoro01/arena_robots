@@ -74,14 +74,6 @@ laser:
   update_rate: 10
 
 nav2:
-  planner_plugins:
-    - GridBased
-  planner_plugins_dict:
-    GridBased:
-      plugin: nav2_navfn_planner::NavfnPlanner
-      tolerance: 0.5
-      use_astar: false
-      allow_unknown: true
   global_observation:
     include: [lidar_points]
     min_obstacle_height: 0.2

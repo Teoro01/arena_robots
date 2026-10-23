@@ -80,13 +80,3 @@ laser:
   num_beams: 640
   range: 12.0
   update_rate: 10
-
-nav2:
-  planner_plugins:
-    - GridBased
-  planner_plugins_dict:
-    GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.5
-      use_astar: false
-      allow_unknown: true

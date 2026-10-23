@@ -61,8 +61,8 @@ class DefaultPart:
     params: dict[str, object] = attrs.field(factory=dict)
     overrides: dict[str, str] = attrs.field(factory=dict)
     """Per-placement sensor-template overrides (catalog.py), e.g. rbtheron's rear
-    lidar ``{name: lidar_rear, topic: scan/rear}``. Authoring-only: never flows from
-    a fleet-def request, only from a robot's own ``assembly.yaml defaults:``."""
+    lidar ``{name: lidar_rear, topic: scan/rear}``, authored in a robot's own
+    ``assembly.yaml defaults:`` and kept by a request pinned to the same mount and variant."""
 
 
 @attrs.frozen
@@ -106,7 +106,7 @@ class RequestPart:
     """One requested part instance from a fleet-def morphology item; ``mount`` set only
     for an explicit pin. ``params`` is reserved for later bracket-level tuning and is
     accepted but not propagated: a part pinned to a default's own mount and variant takes
-    that default's params. ``overrides`` carries into the placement like a default part's."""
+    that default's params and overrides, its own ``overrides`` winning."""
 
     variant: str
     mount: str | None = None
@@ -344,6 +344,12 @@ def _match(items: list[_Item], mounts_pool: list[str], mounts: dict[str, Mount])
     return best['assignment'], best['unmatched']
 
 
+def _pinned_item(part_type: str, part: RequestPart, default: DefaultPart | None, index: int) -> _Item:
+    if default is None:
+        return _Item(type=part_type, variant=part.variant, mount=part.mount, params={}, overrides=part.overrides, local_index=index)
+    return _Item(type=part_type, variant=part.variant, mount=part.mount, params=dict(default.params), overrides={**default.overrides, **part.overrides}, local_index=index)
+
+
 def resolve(
     spec: AssemblySpec,
     request: dict[str, list[RequestPart]],
@@ -389,8 +395,8 @@ def resolve(
                 continue
             inventory = ", ".join(f"{m.name} accepts {sorted(m.accepts)}" for m in spec.mounts.values()) or "(no mounts declared)"
             raise AssemblyError(f"robot declares no '{t}' mounts; mount inventory: {inventory}")
-        default_params: dict[tuple[str | None, str], dict[str, object]] = {(d.mount, d.variant): d.params for d in spec.defaults.get(t, []) if d.mount is not None}
-        effective.setdefault(t, []).extend(_Item(type=t, variant=p.variant, mount=p.mount, params=dict(default_params.get((p.mount, p.variant), {})), overrides=p.overrides, local_index=i) for i, p in enumerate(requested))
+        pinned_defaults: dict[tuple[str | None, str], DefaultPart] = {(d.mount, d.variant): d for d in spec.defaults.get(t, []) if d.mount is not None}
+        effective.setdefault(t, []).extend(_pinned_item(t, p, pinned_defaults.get((p.mount, p.variant)), i) for i, p in enumerate(requested))
 
     flat: list[_Item] = [item for parts in effective.values() for item in parts]
 

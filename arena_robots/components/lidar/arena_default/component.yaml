@@ -4,7 +4,7 @@ xacro:
   include: "$(find arena_robots)/components/lidar/arena_default/lidar.urdf.xacro"
   macro: arena_default_lidar_mount
   attach:
-    parent_link: "${parent}"
+    parent_link: "${prefix}${parent}"
     frame: "${frame:-lidar}"
     update_rate: "${update_rate:-10}"
     samples: "${samples:-720}"

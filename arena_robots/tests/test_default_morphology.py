@@ -37,6 +37,14 @@ class TestEffectiveSensorsMatchModelParams:
             pinned.setdefault(placement.type, []).append(RequestPart(variant=placement.variant, mount=placement.mount.name, overrides=placement.overrides))
         assert [(s.name, s.topic) for s in view.effective_sensors(pinned)] == [(s.name, s.topic) for s in view.model_params.sensors]
 
+    @pytest.mark.parametrize("robot_name", ROBOT_NAMES)
+    def test_default_pinned_by_mount_and_variant_alone_keeps_sensor_names_and_topics(self, robot_name: str) -> None:
+        view = RobotIdentifier(robot_name).resolve_sync()
+        pinned: dict[str, list[RequestPart]] = {}
+        for placement in resolve(view.assembly, {}).placements:
+            pinned.setdefault(placement.type, []).append(RequestPart(variant=placement.variant, mount=placement.mount.name))
+        assert [(s.name, s.topic) for s in view.effective_sensors(pinned)] == [(s.name, s.topic) for s in view.model_params.sensors]
+
 
 def _origin(joint: ET.Element) -> tuple[tuple[float, ...], tuple[float, ...]]:
     origin = joint.find("origin")
