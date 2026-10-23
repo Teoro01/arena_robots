@@ -8,6 +8,7 @@ import threading
 import time
 
 import pytest
+import yaml
 
 pytest.importorskip("arena_mcp")
 rclpy = pytest.importorskip("rclpy")
@@ -18,13 +19,14 @@ from arena_runtime_msgs.msg import EnvRecord, EnvRegistry
 from diagnostic_msgs.msg import KeyValue
 from geometry_msgs.msg import PoseStamped, Twist
 from mcp.server.mcpserver import MCPServer
-from nav_msgs.msg import Odometry, Path
-from rclpy.action import ActionServer, CancelResponse
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
+from rclpy.action import ActionClient, ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image, LaserScan
-from task_generator_msgs.msg import RobotCap, RobotDescriptor, RobotFleet, RobotState
+from task_generator_msgs.msg import EpisodeRecord, RobotCap, RobotDescriptor, RobotFleet, RobotState, SemanticEntityState, SemanticSnapshot
+from task_generator_msgs.srv import SubmitTask
 
 from arena_mcp.core import JOBS, ROS, ToolError, fleet
 from arena_mcp.core.jobs import CANCELLED, FAILED, SUCCEEDED
@@ -48,8 +50,21 @@ IMU = _sensor_topic("jackal", JACKAL, "imu")
 CAMERA = _sensor_topic("rbkairos_plus", KAIROS, "image")
 
 
+def _map() -> OccupancyGrid:
+    grid = OccupancyGrid()
+    grid.header.frame_id = "map"
+    grid.info.resolution = 1.0
+    grid.info.width, grid.info.height = 200, 20
+    grid.info.origin.position.x, grid.info.origin.position.y = -1.0, -10.0
+    grid.info.origin.orientation.w = 1.0
+    data = [0] * (200 * 20)
+    data[10 * 200 + 51] = 100
+    grid.data = data
+    return grid
+
+
 class Peer:
-    """A real ROS node standing in for the task generator, the task servers and the simulator of one env."""
+    """A real ROS node standing in for the task generator with its adapters, the task servers and the simulator of one env."""
 
     def __init__(self) -> None:
         self.node = rclpy.create_node("robots_mcp_peer")
@@ -57,7 +72,13 @@ class Peer:
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.twists: list[Twist] = []
         self.cancelled: list[float] = []
+        self.submissions: list[tuple[str, list, str]] = []
+        self._lock = threading.Lock()
+        self._tasks = {name: {"phase": "", "met": [], "failed": [], "dropped": []} for name in ("jackal", "kairos")}
+        self._goals: dict[str, object] = {}
+        self._next = 0
         self.node.create_publisher(EnvRegistry, "/arena/state/envs", latched).publish(EnvRegistry(envs=[EnvRecord(env_id=ENV, fqn=TG, ready=True)]))
+        self.node.create_publisher(OccupancyGrid, f"{TG}/map", latched).publish(_map())
         self.node.create_publisher(RobotFleet, f"{TG}/state/robots", latched).publish(self._fleet())
         trail = Path()
         trail.header.frame_id = "map"
@@ -80,7 +101,16 @@ class Peer:
             ActionServer(self.node, ReachPose, f"{KAIROS}/reach_pose", execute_callback=self._reach, cancel_callback=self._accept, callback_group=group),
             ActionServer(self.node, PlayGesture, f"{KAIROS}/play_gesture", execute_callback=self._gesture, cancel_callback=self._accept, callback_group=group),
         ]
-        self.executor = MultiThreadedExecutor(num_threads=4)
+        self._clients = {
+            "goto": ActionClient(self.node, GotoPose, f"{JACKAL}/goto_pose", callback_group=group),
+            "reach": ActionClient(self.node, ReachPose, f"{KAIROS}/reach_pose", callback_group=group),
+            "gesture": ActionClient(self.node, PlayGesture, f"{KAIROS}/play_gesture", callback_group=group),
+        }
+        self._semantics = self.node.create_publisher(SemanticSnapshot, f"{TG}/state/semantics", latched)
+        self.node.create_publisher(EpisodeRecord, f"{TG}/state/episode", latched).publish(EpisodeRecord(episode_id=1, world="map_empty", outcome_state=EpisodeRecord.RUNNING))
+        self.node.create_service(SubmitTask, f"{TG}/runtime/submit_task", self._submit, callback_group=group)
+        self._publish_tasks()
+        self.executor = MultiThreadedExecutor(num_threads=6)
         self.executor.add_node(self.node)
         self._thread = threading.Thread(target=self.executor.spin, daemon=True)
         self._thread.start()
@@ -130,6 +160,60 @@ class Peer:
         self._power.publish(Power(total_power_w=42.0, static_power_w=30.0))
         self._energy.publish(Energy(total_energy_consumed_wh=1.5, battery_soc_percent=88.0))
 
+    def _publish_tasks(self) -> None:
+        with self._lock:
+            entities = [SemanticEntityState(entity=f"env_{ENV}/{name}", kind="robot", discrete_names=["phase", "met", "failed", "dropped", "violated"], discrete_values=[task["phase"], *(",".join(map(str, task[key])) for key in ("met", "failed", "dropped")), ""]) for name, task in self._tasks.items()]
+        self._semantics.publish(SemanticSnapshot(env_id=ENV, world="map_empty", entities=entities))
+
+    def _submit(self, request: object, response: object) -> object:
+        phases = yaml.safe_load(request.task_yaml) or []
+        self.submissions.append((request.robot, phases, request.frame_id))
+        with self._lock:
+            task = self._tasks[request.robot]
+            if task["phase"]:
+                task["dropped"].append(int(task["phase"]))
+                task["phase"] = ""
+            goal = self._goals.pop(request.robot, None)
+            index = self._next
+            if phases:
+                self._next += 1
+                task["phase"] = str(index)
+        if goal is not None:
+            goal.cancel_goal_async()
+        self._publish_tasks()
+        if phases:
+            threading.Thread(target=self._dispatch, args=(request.robot, index, phases[0]), daemon=True).start()
+        response.phase_indices = [index] if phases else []
+        response.success = True
+        return response
+
+    def _dispatch(self, robot: str, index: int, phase: dict) -> None:
+        if "goto" in phase:
+            client, goal = self._clients["goto"], GotoPose.Goal()
+            goal.target.header.frame_id = "map"
+            goal.target.pose.position.x = float(phase["goto"][0])
+        elif "reach" in phase:
+            client, goal = self._clients["reach"], ReachPose.Goal(named_target=phase["reach"])
+        else:
+            client, goal = self._clients["gesture"], PlayGesture.Goal(gesture=phase["gesture"])
+        handle = _block(client.send_goal_async(goal))
+        with self._lock:
+            current = self._tasks[robot]["phase"] == str(index)
+            if current:
+                self._goals[robot] = handle
+        if not current:
+            handle.cancel_goal_async()
+            return
+        wrapped = _block(handle.get_result_async())
+        with self._lock:
+            task = self._tasks[robot]
+            if task["phase"] != str(index):
+                return
+            task["phase"] = ""
+            task["met" if wrapped.result.status == 0 else "failed"].append(index)
+            self._goals.pop(robot, None)
+        self._publish_tasks()
+
     def _goto(self, handle: object) -> GotoPose.Result:
         target = handle.request.target
         remaining = target.pose.position.x
@@ -165,6 +249,15 @@ class Peer:
     def close(self) -> None:
         self.executor.shutdown()
         self.node.destroy_node()
+
+
+def _block(future: object, timeout: float = 30.0) -> object:
+    deadline = time.monotonic() + timeout
+    while not future.done():
+        if time.monotonic() > deadline:
+            raise TimeoutError("peer future did not complete")
+        time.sleep(0.01)
+    return future.result()
 
 
 class Rig:
@@ -241,15 +334,24 @@ def test_robot_must_be_named_when_the_env_has_two(run):
         run(mcp.robots_pose(ENV))
 
 
-def test_goto_job_reports_feedback_and_the_action_result(run):
-    job = run(mcp.robots_goto(1.0, 0.0, env_id=ENV, robot="jackal"))
+def test_goto_submits_a_map_frame_phase_and_follows_it_until_met(run):
+    job = run(mcp.robots_goto(1.0, 0.0, env_id=ENV, robot="jackal", pose_tolerance=0.3))
     assert job["kind"] == "goto" and job["state"] == "running"
     done = run(JOBS.wait(job["id"], 30))
     assert done.state == SUCCEEDED, done.error
-    assert done.result["status"] == "succeeded" and done.result["goal_status"] == "succeeded"
-    assert done.result["final_pose"]["pose"]["position"]["x"] == 1.0
+    assert run.peer.submissions[-1] == ("jackal", [{"goto": [1.0, 0.0, 0.0], "tolerance_radius": 0.3}], "map")
+    assert done.result["outcome"] == "met" and done.result["phase"] == done.progress["phase"]
     assert 0.0 <= done.progress["distance_remaining"] < 1.0 and "eta_seconds" in done.progress
     assert done.progress["frame"] == "map"
+
+
+def test_a_new_goal_drops_the_running_one(run):
+    first = run(mcp.robots_goto(100.0, 0.0, env_id=ENV, robot="jackal"))
+    second = run(mcp.robots_goto(1.0, 0.0, env_id=ENV, robot="jackal", frame="scenario"))
+    dropped = run(JOBS.wait(first["id"], 30))
+    assert dropped.state == FAILED and "dropped" in dropped.error
+    assert run(JOBS.wait(second["id"], 30)).state == SUCCEEDED
+    assert run.peer.submissions[-1][2] == ""
 
 
 def test_cancelling_a_goto_job_cancels_the_goal(run):
@@ -261,12 +363,21 @@ def test_cancelling_a_goto_job_cancels_the_goal(run):
     run(_until(moving, "goto feedback"))
     cancelled = run(JOBS.cancel(job["id"]))
     assert cancelled.state == CANCELLED
+    assert run.peer.submissions[-1] == ("jackal", [], "")
 
     async def server_saw_cancel() -> bool:
         return bool(run.peer.cancelled)
 
     run(_until(server_saw_cancel, "the server to see the cancel", timeout=5))
     assert 0 < run.peer.cancelled[-1] < 100
+
+
+def test_goto_refuses_targets_off_the_env_map_or_on_an_occupied_cell(run):
+    with pytest.raises(ToolError, match="outside the env map, x -1.00 to 199.00") as off:
+        run(mcp.robots_goto(500.0, 0.0, env_id=ENV, robot="jackal"))
+    assert "slot.reference" in off.value.hint
+    with pytest.raises(ToolError, match="occupied cell"):
+        run(mcp.robots_goto(50.5, 0.5, env_id=ENV, robot="jackal"))
 
 
 def test_goto_on_a_robot_without_the_endpoint_fails_fast_with_what_it_serves(run):
@@ -282,7 +393,8 @@ def test_reach_named_pose_job_succeeds_with_progress(run):
     job = run(mcp.robots_reach(ENV, "kairos", named="stow"))
     done = run(JOBS.wait(job["id"], 30))
     assert done.state == SUCCEEDED, done.error
-    assert done.result["reason"] == "stow" and done.result["status"] == "succeeded"
+    assert run.peer.submissions[-1] == ("kairos", [{"reach": "stow"}], "")
+    assert done.result["outcome"] == "met"
     assert done.progress["state"] == "EXECUTING" and 0 < done.progress["progress"] <= 1.0
 
 
@@ -291,11 +403,12 @@ def test_reach_without_a_target_is_refused(run):
         run(mcp.robots_reach(ENV, "kairos", x=0.5))
 
 
-def test_gesture_job_fails_with_the_action_status_and_reason(run):
+def test_gesture_job_fails_when_the_episode_fails_its_phase(run):
     job = run(mcp.robots_gesture("moonwalk", ENV, "kairos"))
     done = run(JOBS.wait(job["id"], 30))
     assert done.state == FAILED
-    assert "unknown_gesture" in done.error and "moonwalk" in done.error
+    assert run.peer.submissions[-1] == ("kairos", [{"gesture": "moonwalk"}], "")
+    assert "play_gesture phase" in done.error and "failed" in done.error
 
 
 def test_drive_publishes_the_command_at_rate_then_zero(run):

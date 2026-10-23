@@ -6,8 +6,9 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Protocol, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, cast
 
+import yaml
 from pydantic import Field
 
 from arena_mcp.core import JOBS, LATCHED, RELIABLE, ROS, SENSOR, Domain, ToolError, cli, fleet, media, msgs, robot_ns
@@ -17,9 +18,9 @@ if TYPE_CHECKING:
     from arena_robots_msgs.action import GotoPose, PlayGesture, ReachPose
     from geometry_msgs.msg import PoseStamped
     from sensor_msgs.msg import LaserScan
+    from task_generator_msgs.msg import SemanticSnapshot
 
     from arena_mcp.core import JobHandle
-    from arena_mcp.core.ros import ActionType
     from arena_robots.assembly import RequestPart
     from arena_robots.caps import ArmSpec, RobotCaps
     from arena_robots.Robot import RobotView
@@ -40,6 +41,7 @@ RobotName = Annotated[str | None, Field(description="robot name or namespace in 
 
 TWIST = "geometry_msgs/msg/Twist"
 TWIST_STAMPED = "geometry_msgs/msg/TwistStamped"
+OCCUPIED = 100
 _DRIVES: dict[str, str] = {}
 
 
@@ -464,89 +466,83 @@ def _hint(entry: dict[str, Any], served: dict[str, Any]) -> str:
     return f"{entry['name']} serves {live or 'no task actions'} (adapters: {adapters or 'none'}), robots_fleet shows the live endpoints"
 
 
-class _FeedbackMessage[FeedbackT](Protocol):
-    feedback: FeedbackT
+def _phase_outcome(snapshot: SemanticSnapshot | None, robot: str, index: int) -> str:
+    """pending, active, met, failed or dropped for one episode phase of a robot, from the robot semantic entity."""
+    for state in snapshot.entities if snapshot is not None else []:
+        if state.kind == "robot" and state.entity.rsplit("/", 1)[-1] == robot:
+            fields = dict(zip(state.discrete_names, state.discrete_values, strict=True))
+            for outcome in ("met", "failed", "dropped"):
+                if str(index) in fields.get(outcome, "").split(","):
+                    return outcome
+            return "active" if fields.get("phase") == str(index) else "pending"
+    return "pending"
 
 
-class _Feedback[FeedbackT]:
-    """Feedback from the ROS thread, applied to the job on the server loop at most twice a second."""
-
-    def __init__(self, convert: Callable[[FeedbackT], dict[str, Any]]) -> None:
-        self._loop = asyncio.get_running_loop()
-        self._convert = convert
-        self._handle: JobHandle | None = None
-        self._pending: dict[str, Any] | None = None
-        self._last = 0.0
-
-    def __call__(self, message: object) -> None:
-        self._loop.call_soon_threadsafe(self._apply, self._convert(cast("_FeedbackMessage[FeedbackT]", message).feedback))
-
-    def _apply(self, fields: dict[str, Any]) -> None:
-        self._pending = fields
-        if self._handle is not None and time.monotonic() - self._last >= 0.5:
-            self.flush()
-
-    def attach(self, handle: JobHandle) -> None:
-        self._handle = handle
-        self.flush()
-
-    def flush(self) -> None:
-        if self._handle is not None and self._pending is not None:
-            self._handle.progress(**self._pending)
-            self._pending = None
-            self._last = time.monotonic()
-
-
-async def _action_job[FeedbackT](kind: str, title: str, entry: dict[str, Any], task_kind: TaskKind, goal: object, convert: Callable[[FeedbackT], dict[str, Any]]) -> dict[str, Any]:
-    from action_msgs.msg import GoalStatus
+async def _phase_job[FeedbackT](kind: str, title: str, entry: dict[str, Any], task_kind: TaskKind, phase: dict[str, Any], frame_id: str, convert: Callable[[FeedbackT], dict[str, Any]]) -> dict[str, Any]:
+    """Submit one phase to the robot's episode task, the way rviz goal handles do, and follow it as a job until the episode judges it."""
+    from task_generator_msgs.msg import EpisodeRecord, SemanticSnapshot
+    from task_generator_msgs.srv import SubmitTask
 
     from arena_robots.task_kinds import action_type, endpoint
 
-    action = action_type(task_kind)
     name = endpoint(entry["ns"], task_kind)
-    feedback = _Feedback(convert)
-    hint = _hint(entry, _served(entry, (await ROS.graph())["actions"]))
-    wrapper, handle = await ROS.send_goal(cast("ActionType[object]", action), name, goal, feedback=feedback, hint=hint)
-    statuses = msgs.constants(action.Result, "STATUS_")
-    goal_statuses = msgs.constants(GoalStatus, "STATUS_")
+    served = _served(entry, (await ROS.graph())["actions"])
+    if not served[task_kind.value]["served"]:
+        raise ToolError(f"action server {name} is not available", hint=_hint(entry, served))
+    node = entry["ns"].rsplit("/", 1)[0]
+    service = f"{node}/runtime/submit_task"
+    episodes = await ROS.cache(EpisodeRecord, f"{node}/state/episode", qos=LATCHED)
+    snapshots = await ROS.cache(SemanticSnapshot, f"{node}/state/semantics", qos=LATCHED)
+    feedback = await ROS.cache(cast("type[_FeedbackMessage[FeedbackT]]", action_type(task_kind).Impl.FeedbackMessage), f"{name}/_action/feedback", qos=RELIABLE)
+    episode = cast("EpisodeRecord | None", episodes.last)
+    stale = feedback.last
+    response = await ROS.call(SubmitTask, service, SubmitTask.Request(robot=entry["name"], task_yaml=yaml.safe_dump([phase]), frame_id=frame_id))
+    if not response.success:
+        raise ToolError(f"{task_kind.value} rejected: {response.error_msg}", hint=_hint(entry, served))
+    index = int(response.phase_indices[0])
 
     async def body(job: JobHandle) -> dict[str, Any]:
-        feedback.attach(job)
-        job.log(f"goal accepted by {name}")
-        response = await wrapper.await_result(handle)
-        feedback.flush()
-        result = msgs.to_dict(response.result)
-        result["status"] = statuses.get(response.result.status, response.result.status)
-        result["goal_status"] = goal_statuses.get(response.status, response.status)
-        result["endpoint"] = name
-        job.log(f"{name} ended {result['status']}: {result.get('reason', '')}")
-        if response.result.status != 0:
-            raise ToolError(f"{task_kind.value} ended {result['status']}: {result.get('reason') or 'no reason given'}", hint=f"final goal status {result['goal_status']}")
-        return result
+        job.log(f"phase {index} submitted to {entry['name']} through {service}")
+        while True:
+            current = cast("EpisodeRecord | None", episodes.last)
+            if episode is not None and current is not None and current.episode_id != episode.episode_id:
+                raise ToolError(f"episode {episode.episode_id} ended before phase {index} finished", hint="phases live within one episode, episode_current shows the running one")
+            outcome = _phase_outcome(cast("SemanticSnapshot | None", snapshots.last), entry["name"], index)
+            last = feedback.last
+            progress = {"phase": index, "outcome": outcome, **(convert(cast("_FeedbackMessage[FeedbackT]", last).feedback) if last is not None and last is not stale else {})}
+            job.progress(**progress)
+            if outcome == "met":
+                job.log(f"phase {index} met")
+                return {"robot": entry["name"], "endpoint": name, **progress}
+            if outcome in ("failed", "dropped"):
+                raise ToolError(f"{task_kind.value} phase {index} {outcome}", hint="a later goal or task replaced it" if outcome == "dropped" else "system_logs shows the task server's reason")
+            await asyncio.sleep(0.25)
 
     async def cancel() -> None:
-        await wrapper.cancel(handle)
+        await ROS.call(SubmitTask, service, SubmitTask.Request(robot=entry["name"], task_yaml="[]", frame_id=""))
 
     return JOBS.start_task(kind, title, body, on_cancel=cancel).as_dict()
 
 
-def _quaternion(roll: float, pitch: float, yaw: float) -> tuple[float, float, float, float]:
-    cr, sr = math.cos(roll / 2), math.sin(roll / 2)
-    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
-    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
-    return (sr * cp * cy - cr * sp * sy, cr * sp * cy + sr * cp * sy, cr * cp * sy - sr * sp * cy, cr * cp * cy + sr * sp * sy)
+class _FeedbackMessage[FeedbackT](Protocol):
+    feedback: FeedbackT
 
 
-async def _stamped(frame: str, x: float, y: float, z: float = 0.0, roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0) -> PoseStamped:
-    from geometry_msgs.msg import PoseStamped
+async def _check_on_map(entry: dict[str, Any], x: float, y: float) -> None:
+    """Refuse a map-frame target outside the env map or on an occupied cell."""
+    from nav_msgs.msg import OccupancyGrid
 
-    msg = PoseStamped()
-    msg.header.frame_id = frame
-    msg.header.stamp = (await ROS.node()).sim_time.to_msg()
-    msg.pose = msgs.pose(x, y, yaw, z)
-    orientation = msg.pose.orientation
-    orientation.x, orientation.y, orientation.z, orientation.w = _quaternion(roll, pitch, yaw)
-    return msg
+    grid, _ = await _maybe(ROS.latest(OccupancyGrid, _topic(entry["ns"].rsplit("/", 1)[0], "map"), qos=LATCHED, timeout=3.0))
+    if grid is None:
+        return
+    info = grid.info
+    x0, y0 = info.origin.position.x, info.origin.position.y
+    col, row = math.floor((x - x0) / info.resolution), math.floor((y - y0) / info.resolution)
+    hint = "the env map frame is the world shifted by the env slot (runtime_envs slot.reference), robots_pose odom reads in it"
+    if not (0 <= col < info.width and 0 <= row < info.height):
+        raise ToolError(f"target ({x:.2f}, {y:.2f}) lies outside the env map, x {x0:.2f} to {x0 + info.width * info.resolution:.2f}, y {y0:.2f} to {y0 + info.height * info.resolution:.2f}", hint=hint)
+    if grid.data[row * info.width + col] >= OCCUPIED:
+        raise ToolError(f"target ({x:.2f}, {y:.2f}) is on an occupied cell of the env map", hint=hint)
 
 
 def _goto_feedback(feedback: GotoPose.Feedback) -> dict[str, Any]:
@@ -564,21 +560,22 @@ async def robots_goto(
     yaw: float = 0.0,
     env_id: EnvId = None,
     robot: RobotName = None,
-    frame: Annotated[str, Field(description="frame of the target, the env map by default")] = "map",
-    pose_tolerance: Annotated[float, Field(ge=0, description="arrival radius in m, 0 = adapter default")] = 0.0,
-    yaw_tolerance: Annotated[float, Field(ge=0, description="heading tolerance in rad, 0 = adapter default")] = 0.0,
+    frame: Annotated[Literal["map", "scenario"], Field(description="map: the env map frame rviz goals use, scenario: world coordinates as in scenario files")] = "map",
+    pose_tolerance: Annotated[float, Field(ge=0, description="arrival radius in m, 0 = task default")] = 0.0,
+    yaw_tolerance: Annotated[float, Field(ge=0, description="heading tolerance in rad, 0 = task default")] = 0.0,
 ) -> dict[str, Any]:
-    """Send a mobile robot to (x, y, yaw) through its goto_pose action as a job: progress carries distance_remaining and eta_seconds, jobs_cancel cancels the goal."""
-    from arena_robots_msgs.action import GotoPose
-
+    """Set a robot's goal the way its rviz goal handle does, one goto phase in the episode, followed as a job until the episode judges it; progress carries distance_remaining and eta_seconds, jobs_cancel drops it."""
     from arena_robots.task_kinds import TaskKind
 
     entry = await _member(env_id, robot)
-    goal = GotoPose.Goal()
-    goal.target = await _stamped(frame, x, y, yaw=yaw)
-    goal.pose_tolerance = float(pose_tolerance)
-    goal.yaw_tolerance = float(yaw_tolerance)
-    return await _action_job("goto", f"goto {entry['name']} ({x:.2f}, {y:.2f}, {yaw:.2f})", entry, TaskKind.GOTO_POSE, goal, _goto_feedback)
+    if frame == "map":
+        await _check_on_map(entry, x, y)
+    phase: dict[str, Any] = {"goto": [x, y, yaw]}
+    if pose_tolerance:
+        phase["tolerance_radius"] = pose_tolerance
+    if yaw_tolerance:
+        phase["tolerance_angle"] = yaw_tolerance
+    return await _phase_job("goto", f"goto {entry['name']} ({x:.2f}, {y:.2f}, {yaw:.2f})", entry, TaskKind.GOTO_POSE, phase, "map" if frame == "map" else "", _goto_feedback)
 
 
 @domain.tool()
@@ -594,29 +591,24 @@ async def robots_reach(
     yaw: float = 0.0,
     frame: Annotated[str | None, Field(description="frame of the Cartesian target, the robot's base frame by default")] = None,
     instance: Annotated[str, Field(description="arm instance (mount name), empty for the only arm")] = "",
-    position_tolerance: Annotated[float, Field(ge=0, description="m, 0 = adapter default")] = 0.0,
-    orientation_tolerance: Annotated[float, Field(ge=0, description="rad, 0 = adapter default")] = 0.0,
-    planning_time: Annotated[float, Field(ge=0, description="s, 0 = adapter default")] = 0.0,
+    position_tolerance: Annotated[float, Field(ge=0, description="m, 0 = task default")] = 0.0,
+    orientation_tolerance: Annotated[float, Field(ge=0, description="rad, 0 = task default")] = 0.0,
+    planning_time: Annotated[float, Field(ge=0, description="s, 0 = task default")] = 0.0,
 ) -> dict[str, Any]:
-    """Move an arm to a named pose or a Cartesian target through its reach_pose action as a job with state and progress feedback, jobs_cancel cancels the goal."""
-    from arena_robots_msgs.action import ReachPose
-
+    """Move an arm to a named pose or a Cartesian target as one reach phase in the episode, followed as a job with state and progress feedback, jobs_cancel drops it."""
     from arena_robots.task_kinds import TaskKind
 
     if named is None and None in (x, y, z):
         raise ToolError("pass named or all of x, y and z", hint="robots_definition lists the arm's named_poses")
     entry = await _member(env_id, robot)
-    goal = ReachPose.Goal()
-    if named is not None:
-        goal.named_target = named
-    elif x is not None and y is not None and z is not None:
-        goal.target = await _stamped(frame or entry["base_frame"], x, y, z, roll, pitch, yaw)
-    goal.instance = instance
-    goal.position_tolerance = float(position_tolerance)
-    goal.orientation_tolerance = float(orientation_tolerance)
-    goal.planning_time = float(planning_time)
+    phase: dict[str, Any] = {"reach": named} if named is not None else {"reach": [x, y, z, roll, pitch, yaw], "frame": frame or entry["base_frame"]}
+    for key, value in (("position_tolerance", position_tolerance), ("orientation_tolerance", orientation_tolerance), ("planning_time", planning_time)):
+        if value:
+            phase[key] = value
+    if instance:
+        phase["instance"] = instance
     target = named if named is not None else f"({x:.2f}, {y:.2f}, {z:.2f})"
-    return await _action_job("reach", f"reach {entry['name']} {target}", entry, TaskKind.REACH_POSE, goal, _arm_feedback)
+    return await _phase_job("reach", f"reach {entry['name']} {target}", entry, TaskKind.REACH_POSE, phase, "", _arm_feedback)
 
 
 @domain.tool()
@@ -626,16 +618,14 @@ async def robots_gesture(
     robot: RobotName = None,
     instance: Annotated[str, Field(description="arm instance (mount name), empty for the only arm")] = "",
 ) -> dict[str, Any]:
-    """Play a gesture on an arm through its play_gesture action as a job with state and progress feedback, jobs_cancel cancels the goal."""
-    from arena_robots_msgs.action import PlayGesture
-
+    """Play a gesture on an arm as one gesture phase in the episode, followed as a job with state and progress feedback, jobs_cancel drops it."""
     from arena_robots.task_kinds import TaskKind
 
     entry = await _member(env_id, robot)
-    goal = PlayGesture.Goal()
-    goal.gesture = name
-    goal.instance = instance
-    return await _action_job("gesture", f"gesture {entry['name']} {name}", entry, TaskKind.PLAY_GESTURE, goal, _arm_feedback)
+    phase: dict[str, Any] = {"gesture": name}
+    if instance:
+        phase["instance"] = instance
+    return await _phase_job("gesture", f"gesture {entry['name']} {name}", entry, TaskKind.PLAY_GESTURE, phase, "", _arm_feedback)
 
 
 async def _cmd_vel(entry: dict[str, Any]) -> tuple[str, str, Callable[[float, float, float], Awaitable[None]]]:

@@ -125,9 +125,14 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
                 return result
 
             if arena_status == GotoPose.Result.STATUS_CANCELED:
-                goal_handle.canceled()
-                result.status = arena_status
-                result.reason = arena_reason
+                if goal_handle.is_cancel_requested:
+                    goal_handle.canceled()
+                    result.status = arena_status
+                    result.reason = arena_reason
+                else:
+                    goal_handle.abort()
+                    result.status = GotoPose.Result.STATUS_ABORTED
+                    result.reason = "Nav2: goal replaced by another navigate_to_pose goal"
                 return result
 
             self._node.get_logger().info("nav2 aborted goal; replanning")
