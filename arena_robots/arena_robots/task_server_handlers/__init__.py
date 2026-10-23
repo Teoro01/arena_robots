@@ -7,7 +7,9 @@ shared base class and the ``_executor_sleep`` helper.
 
 from __future__ import annotations
 
+import contextlib
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from rclpy.action import CancelResponse
@@ -17,6 +19,7 @@ from rclpy.node import Node
 from rclpy.task import Future
 
 if TYPE_CHECKING:
+    from rclpy.action.client import ClientGoalHandle
     from tf2_ros import Buffer
 
     from arena_robots.bringup import Bringup
@@ -31,6 +34,30 @@ class TaskHandler[GoalT, FeedbackT, ResultT](ABC):
 
     def on_cancel(self, goal_handle: ServerGoalHandle) -> CancelResponse:
         return CancelResponse.ACCEPT
+
+
+class NativeGoals:
+    """The native action goal each server goal waits on, so that a cancel of the server goal reaches it."""
+
+    def __init__(self) -> None:
+        self._goals: dict[bytes, ClientGoalHandle] = {}
+
+    def cancel(self, goal_handle: ServerGoalHandle) -> CancelResponse:
+        native_handle = self._goals.get(bytes(goal_handle.goal_id.uuid))
+        if native_handle is not None:
+            native_handle.cancel_goal_async()
+        return CancelResponse.ACCEPT
+
+    @contextlib.contextmanager
+    def tracking(self, goal_handle: ServerGoalHandle, native_handle: ClientGoalHandle) -> Iterator[None]:
+        key = bytes(goal_handle.goal_id.uuid)
+        self._goals[key] = native_handle
+        if goal_handle.is_cancel_requested:
+            native_handle.cancel_goal_async()
+        try:
+            yield
+        finally:
+            self._goals.pop(key, None)
 
 
 async def _executor_sleep(node: Node, seconds: float, *, wall: bool = False) -> None:

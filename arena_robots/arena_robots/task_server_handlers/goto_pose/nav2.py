@@ -11,9 +11,10 @@ from rcl_interfaces.srv import GetParameters
 from rclpy.action import ActionClient
 
 from arena_robots.lockstep_beat import LockstepBeat
-from arena_robots.task_server_handlers import TaskHandler, _executor_sleep
+from arena_robots.task_server_handlers import NativeGoals, TaskHandler, _executor_sleep
 
 if TYPE_CHECKING:
+    from rclpy.action import CancelResponse
     from rclpy.action.server import ServerGoalHandle
     from rclpy.node import Node
     from tf2_ros import Buffer
@@ -40,6 +41,7 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
         self._native_client = ActionClient(node, NavigateToPose, bringup.native_action_name)
         self._beat = LockstepBeat(node, "nav")
         self._beat_period: float | None = None
+        self._nav2_goals = NativeGoals()
         node.create_subscription(Twist, str(bringup.namespace("cmd_vel")), lambda _msg: self._beat.pulse(), 10)
 
     async def _controller_period(self) -> float:
@@ -59,6 +61,9 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
             return _CONTROLLER_PERIOD_FALLBACK
         self._beat_period = period
         return period
+
+    def on_cancel(self, goal_handle: ServerGoalHandle) -> CancelResponse:
+        return self._nav2_goals.cancel(goal_handle)
 
     async def execute(self, goal_handle: ServerGoalHandle) -> GotoPose.Result:
         arena_goal: GotoPose.Goal = goal_handle.request
@@ -110,7 +115,8 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
                 await _executor_sleep(self._node, _NAV2_RETRY_BACKOFF_SEC)
                 continue
 
-            wrapped = await nav2_goal_handle.get_result_async()
+            with self._nav2_goals.tracking(goal_handle, nav2_goal_handle):
+                wrapped = await nav2_goal_handle.get_result_async()
 
             arena_status, arena_reason = _translate_nav2_status(wrapped.status)
             if not goal_handle.is_active:

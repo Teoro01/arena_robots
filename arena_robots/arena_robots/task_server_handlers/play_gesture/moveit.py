@@ -14,9 +14,10 @@ from rclpy.action import ActionClient
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from arena_robots.lockstep_beat import LockstepBeat
-from arena_robots.task_server_handlers import TaskHandler, _executor_sleep
+from arena_robots.task_server_handlers import NativeGoals, TaskHandler, _executor_sleep
 
 if TYPE_CHECKING:
+    from rclpy.action import CancelResponse
     from rclpy.action.server import ServerGoalHandle
     from rclpy.node import Node
     from tf2_ros import Buffer
@@ -112,6 +113,7 @@ class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedbac
         self._node = node
         self._mg_clients: dict[str, ActionClient] = {mount: ActionClient(node, MoveGroup, str(bringup.arm_namespace(mount)("move_action"))) for mount in bringup.arms()}
         self._beat = LockstepBeat(node, "gesture")
+        self._native_goals = NativeGoals()
         for mount, arm in bringup.arms().items():
             node.create_subscription(
                 JointTrajectoryControllerState,
@@ -122,6 +124,9 @@ class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedbac
 
     def _on_controller_state(self, msg: JointTrajectoryControllerState) -> None:
         self._beat.pulse(msg.header.stamp)
+
+    def on_cancel(self, goal_handle: ServerGoalHandle) -> CancelResponse:
+        return self._native_goals.cancel(goal_handle)
 
     async def execute(self, goal_handle: ServerGoalHandle) -> PlayGesture.Result:
         arena_goal: PlayGesture.Goal = goal_handle.request
@@ -195,7 +200,8 @@ class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedbac
             result.reason = "MoveIt transition goal rejected"
             return result
 
-        mg_wrapped = await mg_handle.get_result_async()
+        with self._native_goals.tracking(goal_handle, mg_handle):
+            mg_wrapped = await mg_handle.get_result_async()
         if not goal_handle.is_active:
             result.status = PlayGesture.Result.STATUS_CANCELED
             result.reason = "goal canceled by client"
@@ -245,7 +251,8 @@ class PlayGestureHandlerMoveIt(TaskHandler[PlayGesture.Goal, PlayGesture.Feedbac
             result.reason = "FollowJointTrajectory goal rejected"
             return result
 
-        fjt_wrapped = await fjt_handle.get_result_async()
+        with self._native_goals.tracking(goal_handle, fjt_handle):
+            fjt_wrapped = await fjt_handle.get_result_async()
         if not goal_handle.is_active:
             result.status = PlayGesture.Result.STATUS_CANCELED
             result.reason = "goal canceled by client"

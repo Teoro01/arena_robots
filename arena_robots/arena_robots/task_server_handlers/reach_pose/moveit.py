@@ -18,9 +18,10 @@ from rclpy.action import ActionClient
 from shape_msgs.msg import SolidPrimitive
 
 from arena_robots.lockstep_beat import LockstepBeat
-from arena_robots.task_server_handlers import TaskHandler, _executor_sleep
+from arena_robots.task_server_handlers import NativeGoals, TaskHandler, _executor_sleep
 
 if TYPE_CHECKING:
+    from rclpy.action import CancelResponse
     from rclpy.action.server import ServerGoalHandle
     from rclpy.node import Node
     from tf2_ros import Buffer
@@ -56,6 +57,7 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
         self._tf_prefix = bringup.frame
         self._native_clients: dict[str, ActionClient] = {mount: ActionClient(node, MoveGroup, str(bringup.arm_namespace(mount)("move_action"))) for mount in bringup.arms()}
         self._beat = LockstepBeat(node, "reach")
+        self._native_goals = NativeGoals()
         for mount, arm in bringup.arms().items():
             node.create_subscription(
                 JointTrajectoryControllerState,
@@ -66,6 +68,9 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
 
     def _on_controller_state(self, msg: JointTrajectoryControllerState) -> None:
         self._beat.pulse(msg.header.stamp)
+
+    def on_cancel(self, goal_handle: ServerGoalHandle) -> CancelResponse:
+        return self._native_goals.cancel(goal_handle)
 
     async def execute(self, goal_handle: ServerGoalHandle) -> ReachPose.Result:
         arena_goal: ReachPose.Goal = goal_handle.request
@@ -123,7 +128,8 @@ class ReachPoseHandlerMoveIt(TaskHandler[ReachPose.Goal, ReachPose.Feedback, Rea
             result.reason = "MoveIt MotionPlanRequest aborted"
             return result
 
-        wrapped = await native_handle.get_result_async()
+        with self._native_goals.tracking(goal_handle, native_handle):
+            wrapped = await native_handle.get_result_async()
         if not goal_handle.is_active:
             result.status = ReachPose.Result.STATUS_CANCELED
             result.reason = "goal canceled by client"
