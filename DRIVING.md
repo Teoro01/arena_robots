@@ -92,16 +92,17 @@ surface for agents. `python3 -m arena_mcp ls robots` lists its tools.
   laser scan summaries, camera frames and power.
 
 Live tools take `env_id` and `robot`, both optional when the runtime has one
-env and the env one robot. A goal is one phase handed to the robot's episode
-task through the task generator's `runtime/submit_task`, the path an rviz goal
-handle takes: goto targets are in the env map frame (`frame="scenario"` takes
-scenario coordinates), the robot's adapter dispatches the action, and the
-episode judges the phase. Goals and timed drives run as jobs: the job follows
-the phase through the `robot` semantic entity until it is met, failed or
-dropped, the action feedback (distance and ETA for `goto_pose`) lands in its
-progress, a later goal drops the running one, and `jobs_cancel` resubmits an
-empty task. A goto target off the env map or on an occupied cell is refused
-before anything is sent. Velocity commands are `geometry_msgs/Twist` on `<robot_ns>/cmd_vel`,
+env and the env one robot. A goal is one phase appended to the robot's episode
+task through the task generator's `runtime/submit_task`, the same submission an
+rviz goal makes: goto targets are in the env map frame, the robot's adapter
+dispatches the action, and the episode judges the phase. Goals and timed drives
+run as jobs: the job follows the last submitted phase (a cross-level goto runs
+behind elevator boarding phases) through the `robot` semantic entity until it
+is met, failed or dropped, and fails when the episode ends first. The action
+feedback (distance and ETA for `goto_pose`) lands in its progress, a later goal
+drops the running one, and `jobs_cancel` submits an empty task, which drops the
+robot's unfinished phases and cancels its current action. The episode's task mode
+then owns the robot again, so under `explore` it drives on to a fresh goal. Velocity commands are `geometry_msgs/Twist` on `<robot_ns>/cmd_vel`,
 which the per-robot `twist_stamper` relays as `TwistStamped` to the
 ros2_control controller and which flatsim reads directly. A stop zeroes that
 topic and ends a running drive job, a planner holding a goal keeps commanding

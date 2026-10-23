@@ -19,7 +19,7 @@ from arena_runtime_msgs.msg import EnvRecord, EnvRegistry
 from diagnostic_msgs.msg import KeyValue
 from geometry_msgs.msg import PoseStamped, Twist
 from mcp.server.mcpserver import MCPServer
-from nav_msgs.msg import OccupancyGrid, Odometry, Path
+from nav_msgs.msg import Odometry, Path
 from rclpy.action import ActionClient, ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -33,11 +33,13 @@ from arena_mcp.core.jobs import CANCELLED, FAILED, SUCCEEDED
 from arena_robots import mcp
 from arena_robots.Robot import RobotIdentifier
 from arena_robots.Sensor import resolve_topic
+from arena_simulation_setup.shared.task import GoToPhase, ReachPhase, TaskRequest
 
 ENV = 7
 TG = f"/arena/env_{ENV}/task_generator_node"
 JACKAL = f"{TG}/jackal"
 KAIROS = f"{TG}/kairos"
+UPPER_LEVEL_Y = 50.0
 
 
 def _sensor_topic(model: str, ns: str, sensor_type: str) -> str:
@@ -50,19 +52,6 @@ IMU = _sensor_topic("jackal", JACKAL, "imu")
 CAMERA = _sensor_topic("rbkairos_plus", KAIROS, "image")
 
 
-def _map() -> OccupancyGrid:
-    grid = OccupancyGrid()
-    grid.header.frame_id = "map"
-    grid.info.resolution = 1.0
-    grid.info.width, grid.info.height = 200, 20
-    grid.info.origin.position.x, grid.info.origin.position.y = -1.0, -10.0
-    grid.info.origin.orientation.w = 1.0
-    data = [0] * (200 * 20)
-    data[10 * 200 + 51] = 100
-    grid.data = data
-    return grid
-
-
 class Peer:
     """A real ROS node standing in for the task generator with its adapters, the task servers and the simulator of one env."""
 
@@ -72,13 +61,14 @@ class Peer:
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.twists: list[Twist] = []
         self.cancelled: list[float] = []
-        self.submissions: list[tuple[str, list, str]] = []
+        self.submissions: list[tuple[str, TaskRequest]] = []
+        self.indices: list[list[int]] = []
+        self.initialized = True
         self._lock = threading.Lock()
         self._tasks = {name: {"phase": "", "met": [], "failed": [], "dropped": []} for name in ("jackal", "kairos")}
         self._goals: dict[str, object] = {}
         self._next = 0
         self.node.create_publisher(EnvRegistry, "/arena/state/envs", latched).publish(EnvRegistry(envs=[EnvRecord(env_id=ENV, fqn=TG, ready=True)]))
-        self.node.create_publisher(OccupancyGrid, f"{TG}/map", latched).publish(_map())
         self.node.create_publisher(RobotFleet, f"{TG}/state/robots", latched).publish(self._fleet())
         trail = Path()
         trail.header.frame_id = "map"
@@ -107,7 +97,8 @@ class Peer:
             "gesture": ActionClient(self.node, PlayGesture, f"{KAIROS}/play_gesture", callback_group=group),
         }
         self._semantics = self.node.create_publisher(SemanticSnapshot, f"{TG}/state/semantics", latched)
-        self.node.create_publisher(EpisodeRecord, f"{TG}/state/episode", latched).publish(EpisodeRecord(episode_id=1, world="map_empty", outcome_state=EpisodeRecord.RUNNING))
+        self._episode = self.node.create_publisher(EpisodeRecord, f"{TG}/state/episode", latched)
+        self.start_episode(1)
         self.node.create_service(SubmitTask, f"{TG}/runtime/submit_task", self._submit, callback_group=group)
         self._publish_tasks()
         self.executor = MultiThreadedExecutor(num_threads=6)
@@ -160,42 +151,63 @@ class Peer:
         self._power.publish(Power(total_power_w=42.0, static_power_w=30.0))
         self._energy.publish(Energy(total_energy_consumed_wh=1.5, battery_soc_percent=88.0))
 
+    def start_episode(self, episode_id: int) -> None:
+        self._episode.publish(EpisodeRecord(episode_id=episode_id, world="map_empty", outcome_state=EpisodeRecord.RUNNING))
+
     def _publish_tasks(self) -> None:
         with self._lock:
             entities = [SemanticEntityState(entity=f"env_{ENV}/{name}", kind="robot", discrete_names=["phase", "met", "failed", "dropped", "violated"], discrete_values=[task["phase"], *(",".join(map(str, task[key])) for key in ("met", "failed", "dropped")), ""]) for name, task in self._tasks.items()]
         self._semantics.publish(SemanticSnapshot(env_id=ENV, world="map_empty", entities=entities))
 
     def _submit(self, request: object, response: object) -> object:
-        phases = yaml.safe_load(request.task_yaml) or []
-        self.submissions.append((request.robot, phases, request.frame_id))
+        response.success = False
+        if not self.initialized:
+            response.error_msg = "task generator not initialized"
+            return response
+        if request.robot not in self._tasks:
+            response.error_msg = f"unknown robot {request.robot!r}, robots: {sorted(self._tasks)}"
+            return response
+        try:
+            submitted = TaskRequest.parse(yaml.safe_load(request.task_yaml) or [])
+        except Exception as exc:
+            response.error_msg = str(exc)
+            return response
+        self.submissions.append((request.robot, submitted))
+        indices: list[int] = []
         with self._lock:
             task = self._tasks[request.robot]
             if task["phase"]:
                 task["dropped"].append(int(task["phase"]))
                 task["phase"] = ""
             goal = self._goals.pop(request.robot, None)
-            index = self._next
-            if phases:
+            phase = submitted.phases[0] if submitted.phases else None
+            if isinstance(phase, GoToPhase) and phase.pose is not None and phase.pose.position.y >= UPPER_LEVEL_Y:
+                task["met"].append(self._next)
+                indices.append(self._next)
                 self._next += 1
-                task["phase"] = str(index)
+            if phase is not None:
+                indices.append(self._next)
+                task["phase"] = str(self._next)
+                self._next += 1
+        self.indices.append(indices)
         if goal is not None:
             goal.cancel_goal_async()
         self._publish_tasks()
-        if phases:
-            threading.Thread(target=self._dispatch, args=(request.robot, index, phases[0]), daemon=True).start()
-        response.phase_indices = [index] if phases else []
+        if phase is not None:
+            threading.Thread(target=self._dispatch, args=(request.robot, indices[-1], phase), daemon=True).start()
+        response.phase_indices = indices
         response.success = True
         return response
 
-    def _dispatch(self, robot: str, index: int, phase: dict) -> None:
-        if "goto" in phase:
+    def _dispatch(self, robot: str, index: int, phase: object) -> None:
+        if isinstance(phase, GoToPhase):
             client, goal = self._clients["goto"], GotoPose.Goal()
             goal.target.header.frame_id = "map"
-            goal.target.pose.position.x = float(phase["goto"][0])
-        elif "reach" in phase:
-            client, goal = self._clients["reach"], ReachPose.Goal(named_target=phase["reach"])
+            goal.target.pose.position.x = phase.pose.position.x
+        elif isinstance(phase, ReachPhase):
+            client, goal = self._clients["reach"], ReachPose.Goal(named_target=phase.named_target or "")
         else:
-            client, goal = self._clients["gesture"], PlayGesture.Goal(gesture=phase["gesture"])
+            client, goal = self._clients["gesture"], PlayGesture.Goal(gesture=phase.gesture)
         handle = _block(client.send_goal_async(goal))
         with self._lock:
             current = self._tasks[robot]["phase"] == str(index)
@@ -334,36 +346,60 @@ def test_robot_must_be_named_when_the_env_has_two(run):
         run(mcp.robots_pose(ENV))
 
 
+def _phases(submission: tuple[str, TaskRequest]) -> tuple[str, list[dict]]:
+    robot, request = submission
+    return robot, [phase.serialize() for phase in request.phases]
+
+
+def _stop(run: Rig, robot: str) -> None:
+    response = run(ROS.call(SubmitTask, f"{TG}/runtime/submit_task", SubmitTask.Request(robot=robot, task_yaml="[]")))
+    assert response.success, response.error_msg
+
+
+async def _moving(job_id: str) -> bool:
+    return "distance_remaining" in JOBS.get(job_id).progress
+
+
 def test_goto_submits_a_map_frame_phase_and_follows_it_until_met(run):
     job = run(mcp.robots_goto(1.0, 0.0, env_id=ENV, robot="jackal", pose_tolerance=0.3))
     assert job["kind"] == "goto" and job["state"] == "running"
     done = run(JOBS.wait(job["id"], 30))
     assert done.state == SUCCEEDED, done.error
-    assert run.peer.submissions[-1] == ("jackal", [{"goto": [1.0, 0.0, 0.0], "tolerance_radius": 0.3}], "map")
+    assert _phases(run.peer.submissions[-1]) == ("jackal", [{"goto": [1.0, 0.0, 0.0], "tolerance_radius": 0.3}])
     assert done.result["outcome"] == "met" and done.result["phase"] == done.progress["phase"]
     assert 0.0 <= done.progress["distance_remaining"] < 1.0 and "eta_seconds" in done.progress
     assert done.progress["frame"] == "map"
 
 
+def test_goto_targets_off_the_map_are_submitted_unchanged(run):
+    job = run(mcp.robots_goto(0.5, -500.0, env_id=ENV, robot="jackal"))
+    assert run(JOBS.wait(job["id"], 30)).state == SUCCEEDED
+    assert _phases(run.peer.submissions[-1]) == ("jackal", [{"goto": [0.5, -500.0, 0.0]}])
+
+
+def test_cross_level_goto_follows_the_goto_phase_behind_the_boarding_phases(run):
+    job = run(mcp.robots_goto(1.0, UPPER_LEVEL_Y + 10.0, env_id=ENV, robot="jackal"))
+    done = run(JOBS.wait(job["id"], 30))
+    assert done.state == SUCCEEDED, done.error
+    boarding, goto = run.peer.indices[-1]
+    assert done.result["phase"] == goto and goto != boarding
+
+
 def test_a_new_goal_drops_the_running_one(run):
     first = run(mcp.robots_goto(100.0, 0.0, env_id=ENV, robot="jackal"))
-    second = run(mcp.robots_goto(1.0, 0.0, env_id=ENV, robot="jackal", frame="scenario"))
+    second = run(mcp.robots_goto(1.0, 0.0, env_id=ENV, robot="jackal"))
     dropped = run(JOBS.wait(first["id"], 30))
     assert dropped.state == FAILED and "dropped" in dropped.error
     assert run(JOBS.wait(second["id"], 30)).state == SUCCEEDED
-    assert run.peer.submissions[-1][2] == ""
 
 
-def test_cancelling_a_goto_job_cancels_the_goal(run):
+def test_cancelling_a_goto_job_submits_the_empty_task_that_stops_the_robot(run):
     job = run(mcp.robots_goto(100.0, 0.0, env_id=ENV, robot="jackal"))
-
-    async def moving() -> bool:
-        return "distance_remaining" in JOBS.get(job["id"]).progress
-
-    run(_until(moving, "goto feedback"))
+    run(_until(lambda: _moving(job["id"]), "goto feedback"))
     cancelled = run(JOBS.cancel(job["id"]))
     assert cancelled.state == CANCELLED
-    assert run.peer.submissions[-1] == ("jackal", [], "")
+    assert _phases(run.peer.submissions[-1]) == ("jackal", [])
+    assert run.peer.indices[-1] == []
 
     async def server_saw_cancel() -> bool:
         return bool(run.peer.cancelled)
@@ -372,12 +408,25 @@ def test_cancelling_a_goto_job_cancels_the_goal(run):
     assert 0 < run.peer.cancelled[-1] < 100
 
 
-def test_goto_refuses_targets_off_the_env_map_or_on_an_occupied_cell(run):
-    with pytest.raises(ToolError, match="outside the env map, x -1.00 to 199.00") as off:
-        run(mcp.robots_goto(500.0, 0.0, env_id=ENV, robot="jackal"))
-    assert "slot.reference" in off.value.hint
-    with pytest.raises(ToolError, match="occupied cell"):
-        run(mcp.robots_goto(50.5, 0.5, env_id=ENV, robot="jackal"))
+def test_cancel_raises_when_the_task_generator_refuses_the_stop(run):
+    job = run(mcp.robots_goto(100.0, 0.0, env_id=ENV, robot="jackal"))
+    run(_until(lambda: _moving(job["id"]), "goto feedback"))
+    run.peer.initialized = False
+    try:
+        with pytest.raises(ToolError, match="stopping jackal failed: task generator not initialized"):
+            run(JOBS.cancel(job["id"]))
+    finally:
+        run.peer.initialized = True
+    _stop(run, "jackal")
+
+
+def test_goto_job_fails_when_the_episode_ends_before_its_phase(run):
+    job = run(mcp.robots_goto(100.0, 0.0, env_id=ENV, robot="jackal"))
+    run(_until(lambda: _moving(job["id"]), "goto feedback"))
+    run.peer.start_episode(2)
+    done = run(JOBS.wait(job["id"], 30))
+    assert done.state == FAILED and "episode 1 ended before phase" in done.error
+    _stop(run, "jackal")
 
 
 def test_goto_on_a_robot_without_the_endpoint_fails_fast_with_what_it_serves(run):
@@ -393,9 +442,20 @@ def test_reach_named_pose_job_succeeds_with_progress(run):
     job = run(mcp.robots_reach(ENV, "kairos", named="stow"))
     done = run(JOBS.wait(job["id"], 30))
     assert done.state == SUCCEEDED, done.error
-    assert run.peer.submissions[-1] == ("kairos", [{"reach": "stow"}], "")
+    assert _phases(run.peer.submissions[-1]) == ("kairos", [{"reach": "stow"}])
     assert done.result["outcome"] == "met"
     assert done.progress["state"] == "EXECUTING" and 0 < done.progress["progress"] <= 1.0
+
+
+def test_reach_cartesian_target_reaches_the_task_generator_in_full(run):
+    job = run(mcp.robots_reach(ENV, "kairos", x=0.4, y=0.1, z=0.9, pitch=0.5, position_tolerance=0.02))
+    assert run(JOBS.wait(job["id"], 30)).state == SUCCEEDED
+    robot, request = run.peer.submissions[-1]
+    phase = request.phases[0]
+    assert robot == "kairos" and isinstance(phase, ReachPhase)
+    assert phase.frame == f"env_{ENV}/kairos/robot_base_footprint" and phase.position_tolerance == 0.02
+    assert list(phase.target.position) == pytest.approx([0.4, 0.1, 0.9])
+    assert phase.target.orientation.to_euler() == pytest.approx((0.0, 0.5, 0.0))
 
 
 def test_reach_without_a_target_is_refused(run):
@@ -407,7 +467,7 @@ def test_gesture_job_fails_when_the_episode_fails_its_phase(run):
     job = run(mcp.robots_gesture("moonwalk", ENV, "kairos"))
     done = run(JOBS.wait(job["id"], 30))
     assert done.state == FAILED
-    assert run.peer.submissions[-1] == ("kairos", [{"gesture": "moonwalk"}], "")
+    assert _phases(run.peer.submissions[-1]) == ("kairos", [{"gesture": "moonwalk"}])
     assert "play_gesture phase" in done.error and "failed" in done.error
 
 

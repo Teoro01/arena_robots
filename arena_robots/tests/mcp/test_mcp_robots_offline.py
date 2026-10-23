@@ -99,6 +99,19 @@ def test_definition_findings_are_empty_for_jackal():
     assert mcp._definition_findings(mcp._view("jackal")) == []
 
 
+def test_live_sensors_resolve_the_fleet_parts_into_namespaced_topics():
+    entry = {"name": "jackal", "model": "jackal", "ns": "/arena/env_0/task_generator_node/jackal", "params": {"lidar@front": "jackal_default", "imu@imu": "jackal_default"}}
+    sensors = mcp._live_sensors(entry)
+    assert {sensor["type"] for sensor in sensors} >= {"laserscan", "imu"}
+    assert all(sensor["topic"].startswith(entry["ns"] + "/") for sensor in sensors)
+
+
+def test_live_sensors_name_the_robot_when_its_parts_do_not_resolve():
+    entry = {"name": "scout", "model": "jackal", "ns": "/arena/env_0/task_generator_node/scout", "params": {"lidar@front": "no_such_lidar"}}
+    with pytest.raises(ToolError, match=r"sensors of scout \(jackal\) do not resolve .*lidar/no_such_lidar"):
+        mcp._live_sensors(entry)
+
+
 @pytest.fixture
 def fake_arena(tmp_path):
     arena = Path(os.environ["ARENA_DIR"]) if "ARENA_DIR" in os.environ else None
