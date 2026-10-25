@@ -120,7 +120,7 @@
       <origin xyz="0 0 0" rpy="-${M_PI/2} 0 -${M_PI/2}" />
   </joint>
 
-  <gazebo reference="${name}_imu_joint">
+  <gazebo reference="${name}_imu_frame">
     <sensor name="${name}_imu" type="imu">
       <plugin filename="libgz-sim-imu-system" name="gz::sim::systems::Imu">
         <topic>/imu/data</topic>

@@ -1,7 +1,7 @@
 robot_model: turtlebot
 priority: 1
 base_frame: base_link
-z_offset: 0.04
+z_offset: -0.0045
 mass:
   base_kg: 4.153
 sensors:

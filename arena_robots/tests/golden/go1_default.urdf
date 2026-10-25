@@ -152,7 +152,7 @@
     <child link="FR_calf"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="0.01" friction="0.2"/>
-    <limit effort="23.7" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="30.1"/>
+    <limit effort="35.55" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="20.06"/>
   </joint>
   <link name="FR_calf">
     <visual>
@@ -274,7 +274,7 @@
     <child link="FL_calf"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="0.01" friction="0.2"/>
-    <limit effort="23.7" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="30.1"/>
+    <limit effort="35.55" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="20.06"/>
   </joint>
   <link name="FL_calf">
     <visual>
@@ -396,7 +396,7 @@
     <child link="RR_calf"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="0.01" friction="0.2"/>
-    <limit effort="23.7" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="30.1"/>
+    <limit effort="35.55" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="20.06"/>
   </joint>
   <link name="RR_calf">
     <visual>
@@ -518,7 +518,7 @@
     <child link="RL_calf"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="0.01" friction="0.2"/>
-    <limit effort="23.7" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="30.1"/>
+    <limit effort="35.55" lower="-2.722713633111154" upper="-0.8377580409572781" velocity="20.06"/>
   </joint>
   <link name="RL_calf">
     <visual>
@@ -592,12 +592,12 @@
   <joint name="camera_optical_joint_face" type="fixed">
     <origin rpy="-1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0"/>
     <parent link="camera_face"/>
-    <child link="camera_optical_face"/>
+    <child link="camera_face_optical_frame"/>
   </joint>
-  <link name="camera_optical_face"/>
+  <link name="camera_face_optical_frame"/>
   <gazebo reference="camera_face">
     <sensor name="camera_face" type="rgbd_camera">
-      <pose>0.04 0 0 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <gz_frame_id>/camera_face</gz_frame_id>
       <update_rate>16</update_rate>
       <camera>
@@ -684,62 +684,86 @@
     </hardware>
     <joint name="FL_hip_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="FL_thigh_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.8536</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="FL_calf_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">-1.7072</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="FR_hip_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="FR_thigh_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.8536</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="FR_calf_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">-1.7072</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="RL_hip_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="RL_thigh_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.8536</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="RL_calf_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">-1.7072</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="RR_hip_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="RR_thigh_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.8536</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="RR_calf_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">-1.7072</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
   </ros2_control>

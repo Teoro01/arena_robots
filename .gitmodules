@@ -32,7 +32,7 @@
 	path = arena_robots/robots/rbrobout/meshes
 	url = https://github.com/arena-robots/rbrobout.git
 	update = none
-	robot = rbrobout rbrobout_plus
+	robot = rbrobout
 [submodule "arena_robots/robots/rbsummit/meshes"]
 	path = arena_robots/robots/rbsummit/meshes
 	url = https://github.com/arena-robots/rbsummit.git
@@ -73,7 +73,7 @@
 	url = https://github.com/UniversalRobots/Universal_Robots_ROS2_Description.git
 	branch = humble
 	update = none
-	robot = rbkairos_plus rbrobout_plus rbvogui_plus ridgeback_plus
+	robot = rbkairos_plus rbvogui_plus ridgeback_plus
 	component = arm/ur
 [submodule "deps/robotnik_description"]
 	path = deps/robotnik_description

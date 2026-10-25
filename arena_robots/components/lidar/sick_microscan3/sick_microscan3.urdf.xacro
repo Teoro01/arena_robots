@@ -13,7 +13,9 @@
                        node_name:=sick_microscan3
                        node_namespace:=${None}
                        topic_prefix:=~/
-                       gpu:=false">
+                       gpu:=false
+                       half_angle:=2.39982772
+                       samples:=2751">
     <!-- node_namespace is used from node_name if not set -->
     <xacro:if value="${node_namespace == None}">
       <xacro:property name="node_namespace" value="${node_name}"/>
@@ -61,12 +63,12 @@
       gazebo_ignition="${gazebo_ignition}"
       min_range="0.05"
       max_range="64.0"
-      min_angle="-2.39982772"
-      max_angle="2.39982772"
+      min_angle="${-half_angle}"
+      max_angle="${half_angle}"
       frame_link="${frame_prefix}link"
       rate="33"
       resolution="0.00575"
-      samples="2751"
+      samples="${samples}"
     >
     </xacro:lidar_2d_plugin>
 

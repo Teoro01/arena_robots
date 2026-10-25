@@ -91,6 +91,7 @@ class Nav2Bringup(Bringup):
                         "name": s.name,
                         "type": s.type.value if isinstance(s.type, SensorType) else str(s.type),
                         "topic": s.topic,
+                        "frame": s.frame,
                         "sensor": s.sensor,
                         "geometry": attrs.asdict(geometry[s.sensor]) if s.sensor in geometry else None,
                     }

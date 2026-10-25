@@ -62,8 +62,8 @@ actions:
 laser:
   angle:
     increment: 0.00174532925
-    max: 2.39982772
-    min: -2.39982772
-  num_beams: 2751
+    max: 2.30383461
+    min: -2.30383461
+  num_beams: 2641
   range: 64.0
   update_rate: 33

@@ -1680,7 +1680,7 @@
     <child link="oakd_imu_frame"/>
     <origin rpy="-1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0"/>
   </joint>
-  <gazebo reference="oakd_imu_joint">
+  <gazebo reference="oakd_imu_frame">
     <sensor name="oakd_imu" type="imu">
       <plugin filename="libgz-sim-imu-system" name="gz::sim::systems::Imu">
         <topic>/imu/data</topic>

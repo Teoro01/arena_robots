@@ -25,6 +25,7 @@ _TYPE_TO_NAV2: dict[str, str] = {
 _DEFAULT_LIDAR_RANGE = 10.0
 
 _CLEARING_SUFFIX = "_clearing"
+_VOLUMETRIC_MAX_OBSTACLE_HEIGHT = 0.8
 _STVL_X_FORWARD_FRUSTUM = 1
 _STVL_FULL_TURN = 6.29
 
@@ -36,6 +37,7 @@ def compile_sensors_to_nav2(
     obstacle_range_margin: float = 1.0,
     max_obstacle_height: float = 2.0,
     pointcloud_min_obstacle_height: float = 0.1,
+    pointcloud_max_obstacle_height: float = _VOLUMETRIC_MAX_OBSTACLE_HEIGHT,
     laserscan_min_obstacle_height: float = 0.05,
     clearing: bool = True,
     marking: bool = True,
@@ -50,7 +52,8 @@ def compile_sensors_to_nav2(
     margin keeps those from leaking into the costmap as concentric arcs that no later
     raytrace ever clears. `inf_is_valid` lets no-return beams clear out to `max_range`.
     `pointcloud_min_obstacle_height` is a height floor for 3D cloud sources, so their
-    ground returns are dropped instead of marked. `laserscan_min_obstacle_height` is a
+    ground returns are dropped instead of marked, and `pointcloud_max_obstacle_height` caps
+    them below any ceiling. `laserscan_min_obstacle_height` is a
     lower floor for 2D scans: level returns always sit at beam height, so it only drops
     the ground strikes swept by a momentarily tilted robot (spawn bounce, door sills).
     `extra_per_source` is merged onto every emitted source last, letting callers layer
@@ -75,6 +78,7 @@ def compile_sensors_to_nav2(
         }
         if data_type == "PointCloud2":
             source["min_obstacle_height"] = pointcloud_min_obstacle_height
+            source["max_obstacle_height"] = pointcloud_max_obstacle_height
         elif data_type == "LaserScan":
             source["min_obstacle_height"] = laserscan_min_obstacle_height
         if extra_per_source:
@@ -131,11 +135,12 @@ def compile_sensors_to_stvl(
     *,
     default_range: float,
     obstacle_range_margin: float = 1.0,
-    max_obstacle_height: float = 0.8,
+    max_obstacle_height: float = _VOLUMETRIC_MAX_OBSTACLE_HEIGHT,
     min_obstacle_height: float = 0.1,
     decay_acceleration: float = 5.0,
+    frame_prefix: str = "",
 ) -> dict[str, dict[str, typing.Any]]:
-    """Compile volumetric specs into voxel-layer marking sources plus `<name>_clearing` frustums inside each sensor's view."""
+    """Compile volumetric specs into voxel-layer marking sources plus `<name>_clearing` frustums inside each sensor's view, a camera's posed in its body frame."""
     out: dict[str, dict[str, typing.Any]] = {}
     for spec in sensors:
         data_type = _TYPE_TO_NAV2[_type_str(spec)]
@@ -155,7 +160,7 @@ def compile_sensors_to_stvl(
         if shape is None or frustum is None:
             continue
         vertical, horizontal = frustum
-        out[f"{spec.name}{_CLEARING_SUFFIX}"] = {
+        clearing = out[f"{spec.name}{_CLEARING_SUFFIX}"] = {
             "topic": spec.topic,
             "data_type": data_type,
             "marking": False,
@@ -167,6 +172,8 @@ def compile_sensors_to_stvl(
             "horizontal_fov_angle": horizontal,
             "decay_acceleration": decay_acceleration,
         }
+        if shape.kind == "camera" and spec.frame:
+            clearing["sensor_frame"] = f"{frame_prefix}{spec.frame}"
     return out
 
 
@@ -212,7 +219,9 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
     Local uses the full lidar range, with planar sensors under the `_planar` keys and
     volumetric ones under the bare keys. Global uses shorter capped ranges and pulls per-source
     overrides (`raytrace_max_range`, `obstacle_max_range`, `observation_persistence`) from
-    the optional `nav2.global_observation` block in caps/mobile.yaml.
+    the optional `nav2.global_observation` block in caps/mobile.yaml, which also sets the cloud
+    sources' `min_obstacle_height` and `max_obstacle_height`. The voxel layer takes both heights
+    from the optional `nav2.local_observation` block.
     """
 
     _GLOBAL_DEFAULT_RAYTRACE = 6.0
@@ -225,11 +234,13 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
         model_params_path: launch.SomeSubstitutionsType,
         mobile_path: launch.SomeSubstitutionsType,
         sensors_json: launch.SomeSubstitutionsType = '',
+        frame_prefix: launch.SomeSubstitutionsType = '',
     ):
         super().__init__(path=[], default={}, substitute=False)
         self._path = launch.utilities.normalize_to_list_of_substitutions(model_params_path)
         self._mobile_path = launch.utilities.normalize_to_list_of_substitutions(mobile_path)
         self._sensors_json = launch.utilities.normalize_to_list_of_substitutions(sensors_json)
+        self._frame_prefix = launch.utilities.normalize_to_list_of_substitutions(frame_prefix)
 
     def perform(self, context: launch.LaunchContext) -> str:
         mobile_str = launch.utilities.perform_substitutions(context, self._mobile_path)
@@ -239,7 +250,7 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
         sensors_json_str = launch.utilities.perform_substitutions(context, self._sensors_json)
         if sensors_json_str:
             entries = json.loads(sensors_json_str)
-            sensors = [SensorSpec(name=d['name'], type=d['type'], topic=d['topic'], frame='', sensor=d.get('sensor')) for d in entries]
+            sensors = [SensorSpec(name=d['name'], type=d['type'], topic=d['topic'], frame=d.get('frame', ''), sensor=d.get('sensor')) for d in entries]
             geometry = {d['sensor']: SensorGeometry(**d['geometry']) for d in entries if d.get('geometry')}
         else:
             path_str = launch.utilities.perform_substitutions(context, self._path)
@@ -248,13 +259,17 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
 
         planar, volumetric = split_planar_sensors(sensors, geometry)
         planar_sources = compile_sensors_to_nav2(planar, max_range=max_range)
-        local_sources = compile_sensors_to_stvl(volumetric, geometry, default_range=max_range)
+        frame_prefix = launch.utilities.perform_substitutions(context, self._frame_prefix)
+        local = mobile.raw.get('nav2', {}).get('local_observation', {}) or {}
+        local_heights = {key: float(local[key]) for key in ('min_obstacle_height', 'max_obstacle_height') if key in local}
+        local_sources = compile_sensors_to_stvl(volumetric, geometry, default_range=max_range, frame_prefix=frame_prefix, **local_heights)
 
         overrides = mobile.raw.get('nav2', {}).get('global_observation', {}) or {}
         g_raytrace = float(overrides.get('raytrace_max_range', min(max_range, self._GLOBAL_DEFAULT_RAYTRACE)))
         g_obstacle = float(overrides.get('obstacle_max_range', min(g_raytrace, self._GLOBAL_DEFAULT_OBSTACLE)))
         g_persistence = float(overrides.get('observation_persistence', self._GLOBAL_DEFAULT_PERSISTENCE))
         g_min_height = float(overrides.get('min_obstacle_height', self._GLOBAL_DEFAULT_MIN_HEIGHT))
+        g_max_height = float(overrides.get('max_obstacle_height', _VOLUMETRIC_MAX_OBSTACLE_HEIGHT))
         g_include = overrides.get('include')
         if g_include is not None:
             include_names = set(g_include)
@@ -267,6 +282,7 @@ class SensorsDerivedYAML(YAMLFileSubstitution):
             max_range=g_raytrace,
             obstacle_range_margin=max(0.0, g_raytrace - g_obstacle),
             pointcloud_min_obstacle_height=g_min_height,
+            pointcloud_max_obstacle_height=g_max_height,
             extra_per_source={'observation_persistence': g_persistence},
         )
 

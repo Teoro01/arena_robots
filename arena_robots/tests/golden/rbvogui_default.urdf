@@ -50,7 +50,13 @@
     <child link="robot_base_link"/>
   </joint>
   <!-- BASE_LINK -->
-  <link name="robot_base_link"/>
+  <link name="robot_base_link">
+    <inertial>
+      <mass value="25.0"/>
+      <origin xyz="-0.012 0 0.2775"/>
+      <inertia ixx="1.4744666666666666" ixy="0" ixz="0" iyy="3.434635416666666" iyz="0" izz="4.707435416666667"/>
+    </inertial>
+  </link>
   <!-- Chassis -->
   <joint name="robot_chassis_joint" type="fixed">
     <origin rpy="0 0 0" xyz="-0.012 0 0.1775"/>
@@ -59,11 +65,6 @@
   </joint>
   <!-- Chassis -->
   <link name="robot_chassis_link">
-    <inertial>
-      <mass value="25.0"/>
-      <origin xyz="0 0 0.10"/>
-      <inertia ixx="1.4744666666666666" ixy="0" ixz="0" iyy="3.434635416666666" iyz="0" izz="4.707435416666667"/>
-    </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>

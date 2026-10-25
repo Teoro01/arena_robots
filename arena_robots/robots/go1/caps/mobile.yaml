@@ -74,6 +74,8 @@ laser:
   update_rate: 10
 
 nav2:
+  local_observation:
+    min_obstacle_height: 0.2
   global_observation:
     include: [lidar_points]
     min_obstacle_height: 0.2

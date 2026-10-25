@@ -14,9 +14,9 @@
       <origin xyz="0 0 0" rpy="0 0 0" />
     </xacro:sensor_d435>
 
-    <gazebo reference="${name}_link">
+    <gazebo reference="${name}_depth_frame">
       <sensor name="${name}" type="depth_camera">
-        <gz_frame_id>$(arg sim_path)/${name}_link</gz_frame_id>
+        <gz_frame_id>$(arg sim_path)/${name}_depth_frame</gz_frame_id>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
         <topic>${topic}/depth_image</topic>

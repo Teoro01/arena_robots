@@ -19,10 +19,43 @@ ALL_ROBOTS = sorted(p.name for p in ROBOTS_DIR.iterdir() if (p / "model_params.y
 COMPONENTS = sorted(p.parent.relative_to(PKG / "components").as_posix() for p in (PKG / "components").glob("*/*/component.yaml"))
 ASSEMBLIES = {p.parent.name: AssemblySpec.parse(yaml.safe_load(p.read_text()) or {}) for p in sorted(ROBOTS_DIR.glob("*/assembly.yaml"))}
 _RANGING = {"laserscan", "pointcloud"}
+_CAMERAS = {"camera", "rgbd_camera", "depth_camera"}
+_OPTICAL_RPY = (-math.pi / 2, 0.0, -math.pi / 2)
 
 
 def _golden(robot: str) -> dict:
     return parse_sensor_geometry((GOLDEN_DIR / f"{robot}_default.urdf").read_text())
+
+
+def _frame_violations(urdf: str) -> list[str]:
+    """Sensors whose stamped frame is not where the simulators place them."""
+    root = ET.fromstring(urdf)
+    links = {link.get("name") for link in root.findall("link")}
+    joints = {joint.find("child").get("link"): joint for joint in root.findall("joint")}
+    found = []
+    for gazebo in root.iter("gazebo"):
+        reference = gazebo.get("reference")
+        for sensor in gazebo.iter("sensor"):
+            name = sensor.get("name")
+            if reference not in links:
+                found.append(f"{name}: reference {reference} is not a link")
+                continue
+            pose = [float(v) for v in (sensor.findtext("pose") or "0 0 0 0 0 0").split()]
+            if any(abs(v) > 1e-9 for v in pose):
+                found.append(f"{name}: posed {pose} off its frame {reference}")
+            if sensor.get("type") not in _CAMERAS:
+                continue
+            optical = f"{reference.removesuffix('_frame')}_optical_frame"
+            joint = joints.get(optical)
+            if joint is None or joint.find("parent").get("link") != reference:
+                found.append(f"{name}: no optical frame {optical} under {reference}")
+                continue
+            origin = joint.find("origin")
+            xyz = [float(v) for v in origin.get("xyz", "0 0 0").split()] if origin is not None else [0.0] * 3
+            rpy = [float(v) for v in origin.get("rpy", "0 0 0").split()] if origin is not None else [0.0] * 3
+            if any(abs(v) > 1e-9 for v in xyz) or rpy != pytest.approx(_OPTICAL_RPY):
+                found.append(f"{name}: optical frame {optical} at xyz {xyz} rpy {rpy}")
+    return found
 
 
 def test_jackal_lidar_is_a_16_ring_360_degree_scanner():
@@ -87,6 +120,40 @@ def test_rendered_urdf_geometry_covers_every_ranging_sensor(robot, require_insta
         assert {name: shapes[name] for name in backing} == {name: golden[name] for name in backing}
 
 
+@pytest.mark.parametrize("robot", GOLDEN_ROBOTS)
+def test_golden_sensors_sit_on_their_stamped_frames(robot):
+    assert _frame_violations((GOLDEN_DIR / f"{robot}_default.urdf").read_text()) == []
+
+
+@pytest.mark.parametrize("robot", GOLDEN_ROBOTS)
+def test_every_sensor_frame_is_its_gz_reference(robot):
+    root = ET.fromstring((GOLDEN_DIR / f"{robot}_default.urdf").read_text())
+    references = {sensor.get("name"): gazebo.get("reference") for gazebo in root.iter("gazebo") for sensor in gazebo.iter("sensor")}
+    view = RobotIdentifier(robot).resolve_sync()
+    assert {s.name: s.frame for s in view.effective_sensors({})} == {s.name: references[s.sensor] for s in view.effective_sensors({})}
+
+
+@pytest.mark.parametrize("robot", ALL_ROBOTS)
+def test_rendered_sensors_sit_on_their_stamped_frames(robot, require_installed):
+    pytest.importorskip("xacro")
+    require_installed(robot)
+    assert _frame_violations(render_urdf(RobotIdentifier(robot).resolve_sync(), {})) == []
+
+
+@pytest.mark.parametrize("component", [c for c in COMPONENTS if c.startswith("camera/")])
+def test_camera_components_sit_on_their_stamped_frames(component, require_installed):
+    pytest.importorskip("xacro")
+    part, name = component.split("/")
+    spec = ComponentSpec.from_yaml(PKG / "components" / component / "component.yaml")
+    variant = spec.variants[0] if spec.variants else name
+    host = _host(part, variant)
+    if host is None:
+        pytest.skip(f"no robot mounts {component}")
+    robot, mount = host
+    require_installed(robot)
+    assert _frame_violations(render_urdf(RobotIdentifier(robot).resolve_sync(), {part: [RequestPart(variant=variant, mount=mount)]})) == []
+
+
 @pytest.mark.parametrize("robot", ALL_ROBOTS)
 def test_pinned_default_request_renders_like_the_defaults(robot, require_installed):
     pytest.importorskip("xacro")
@@ -114,6 +181,19 @@ def _prefixed_host(part: str, variant: str, robot_local: bool) -> tuple[str, str
             for mount in spec.mounts.values():
                 if part in mount.accepts and mount.chained_parent is None:
                     return name, mount.name
+    return None
+
+
+def _host(part: str, variant: str) -> tuple[str, str] | None:
+    """A robot and unchained mount for the part, one whose defaults place the variant first."""
+    for name, spec in ASSEMBLIES.items():
+        for default in spec.defaults.get(part, []):
+            if default.variant == variant and default.mount is not None:
+                return name, default.mount
+    for name, spec in ASSEMBLIES.items():
+        for mount in spec.mounts.values():
+            if part in mount.accepts and mount.chained_parent is None:
+                return name, mount.name
     return None
 
 

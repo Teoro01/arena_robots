@@ -8,6 +8,8 @@ xacro:
     node_namespace: "${namespace}"
     gazebo_classic: "${gazebo_classic}"
     gazebo_ignition: "${gazebo_ignition}"
+    half_angle: "${half_angle:-2.39982772}"
+    samples: "${samples:-2751}"
   args: {}
 sensor:
   gz:

@@ -71,7 +71,7 @@ def generate_launch_description():
         Nav2SubBlockYAML(mobile_path),
         Nav2CollisionDerivedYAML(mobile_path),
         Nav2KinematicsDerivedYAML(mobile_path),
-        SensorsDerivedYAML(model_params_path, mobile_path, sensors_json.substitution),
+        SensorsDerivedYAML(model_params_path, mobile_path, sensors_json.substitution, frame.substitution),
         YAMLFileSubstitution(nav2_cfg('defaults', 'controller_config.yaml')),
         YAMLFileSubstitution(nav2_cfg('controllers', local_planner.substitution, 'controller_config.yaml')),
         YAMLFileSubstitution(nav2_cfg('defaults', 'planner_config.yaml')),

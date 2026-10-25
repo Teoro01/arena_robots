@@ -42,7 +42,7 @@ class GotoPoseHandlerNav2(TaskHandler[GotoPose.Goal, GotoPose.Feedback, GotoPose
         self._beat = LockstepBeat(node, "nav")
         self._beat_period: float | None = None
         self._nav2_goals = NativeGoals()
-        node.create_subscription(Twist, str(bringup.namespace("cmd_vel")), lambda _msg: self._beat.pulse(), 10)
+        node.create_subscription(Twist, str(bringup.namespace("cmd_vel_nav")), lambda _msg: self._beat.pulse(), 10)
 
     async def _controller_period(self) -> float:
         """One controller tick in sim seconds, read once from controller_server."""

@@ -1,6 +1,6 @@
 robot_model: boxer
 base_frame: base_link
-z_offset: 0.0635
+z_offset: 0.005
 mass:
   base_kg: 451.1
 sensors:
@@ -32,17 +32,17 @@ sensors:
   - name: front_realsense_mount_link_info
     type: camera_info
     topic: ${namespace}/front_realsense_mount_link/camera_info
-    frame: realsense_front_camera_link
+    frame: realsense_front_camera_depth_frame
     sensor: realsense_front_camera
   - name: front_realsense_mount_link_depth
     type: depth
     topic: ${namespace}/front_realsense_mount_link/depth_image
-    frame: realsense_front_camera_link
+    frame: realsense_front_camera_depth_frame
     sensor: realsense_front_camera
   - name: front_realsense_mount_link_points
     type: pointcloud
     topic: ${namespace}/front_realsense_mount_link/depth_image/points
-    frame: realsense_front_camera_link
+    frame: realsense_front_camera_depth_frame
     sensor: realsense_front_camera
 control:
   mode: ros2_control

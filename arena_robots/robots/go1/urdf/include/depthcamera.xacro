@@ -35,13 +35,13 @@
     <joint name="${prefix}camera_optical_joint_${name}" type="fixed">
       <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
       <parent link="${prefix}camera_${name}"/>
-      <child link="${prefix}camera_optical_${name}"/>
+      <child link="${prefix}camera_${name}_optical_frame"/>
     </joint>
 
-    <link name="${prefix}camera_optical_${name}"/>
+    <link name="${prefix}camera_${name}_optical_frame"/>
 
     <xacro:gz_rgbd_camera frame="${prefix}camera_${name}" sensor_name="${prefix}camera_${name}"
                           fov="2.094" width="928" height="800" near="0.1" far="5.0"
-                          update_rate="16" pose="0.04 0 0 0 0 0"/>
+                          update_rate="16"/>
   </xacro:macro>
 </robot>

@@ -1,7 +1,7 @@
 robot_model: go1
 priority: 2
 base_frame: base
-z_offset: 0.45
+z_offset: 0.32
 mass:
   base_kg: 12.013
 sensors:

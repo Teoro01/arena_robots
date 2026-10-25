@@ -106,6 +106,16 @@ def test_stvl_camera_frustum_stays_inside_the_image_corners():
     assert (frustum["min_z"], frustum["max_z"]) == (0.105, 8.0)
 
 
+def test_stvl_camera_frustum_is_posed_in_the_camera_body_frame():
+    camera = SensorSpec(name="cam_points", type=SensorType.POINTCLOUD, topic="ns/cam/points", frame="cam_link", sensor="cam")
+    lidar = SensorSpec(name="lidar_points", type=SensorType.POINTCLOUD, topic="ns/lidar/points", frame="lidar_link", sensor="gpu_lidar")
+    _, volumetric = split_planar_sensors([camera, lidar], {"cam": _CAMERA, "gpu_lidar": _LIDAR_3D})
+    sources = compile_sensors_to_stvl(volumetric, {"cam": _CAMERA, "gpu_lidar": _LIDAR_3D}, default_range=30.0, frame_prefix="env_0/robot/")
+    assert sources["cam_points_clearing"]["sensor_frame"] == "env_0/robot/cam_link"
+    assert "sensor_frame" not in sources["lidar_points_clearing"]
+    assert "sensor_frame" not in sources["cam_points"]
+
+
 def test_stvl_sensor_without_geometry_marks_only():
     sources = _stvl(_lidar_spec("lidar", "gpu_lidar"), {}, 12.0)
     assert list(sources) == ["lidar_points"]
@@ -121,6 +131,32 @@ def test_obstacle_layer_cloud_source_marks_and_clears():
     sources = compile_sensors_to_nav2([_spec("lidar_points", SensorType.POINTCLOUD, "ns/lidar/points")], max_range=12.0)
     assert list(sources) == ["lidar_points"]
     assert (sources["lidar_points"]["marking"], sources["lidar_points"]["clearing"]) == (True, True)
+
+
+@pytest.mark.parametrize(("robot", "height"), [("a1", 0.2), ("go1", 0.2), ("jackal", 0.1)])
+def test_voxel_layer_takes_its_min_obstacle_height_from_local_observation(robot, height):
+    pytest.importorskip("xacro")
+    robot_dir = ROBOTS_DIR / robot
+    derived = yaml.safe_load(Path(SensorsDerivedYAML(str(robot_dir / "model_params.yaml"), str(robot_dir / "caps" / "mobile.yaml")).perform(launch.LaunchContext())).read_text())
+    marking = {name: source for name, source in derived["observation_sources_dict"].items() if source["marking"]}
+    assert marking
+    assert {source["min_obstacle_height"] for source in marking.values()} == {height}
+
+
+def test_cloud_sources_stay_below_a_two_meter_ceiling_while_scans_keep_their_reach():
+    sources = compile_sensors_to_nav2([_spec("lidar", SensorType.LASERSCAN, "ns/lidar"), _spec("oakd_points", SensorType.POINTCLOUD, "ns/oakd/points")], max_range=6.0)
+    assert sources["oakd_points"]["max_obstacle_height"] == 0.8
+    assert sources["lidar"]["max_obstacle_height"] == 2.0
+
+
+@pytest.mark.parametrize("robot", ["turtlebot", "boxer", "go1"])
+def test_global_cloud_sources_take_the_voxel_layer_ceiling(robot):
+    pytest.importorskip("xacro")
+    robot_dir = ROBOTS_DIR / robot
+    derived = yaml.safe_load(Path(SensorsDerivedYAML(str(robot_dir / "model_params.yaml"), str(robot_dir / "caps" / "mobile.yaml")).perform(launch.LaunchContext())).read_text())
+    clouds = [source for source in derived["observation_sources_dict_global"].values() if source["data_type"] == "PointCloud2"]
+    assert clouds
+    assert {source["max_obstacle_height"] for source in clouds} == {source["max_obstacle_height"] for source in derived["observation_sources_dict"].values() if source["marking"]} == {0.8}
 
 
 def _costmap_layers(robot: str) -> tuple[dict, dict, dict]:

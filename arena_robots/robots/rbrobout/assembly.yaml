@@ -38,9 +38,11 @@ defaults:
   lidar:
     - variant: sick_microscan3
       mount: front
+      params: {half_angle: 2.30383461, samples: 2641}
       overrides: {topic: lidar}
     - variant: sick_microscan3
       mount: rear
+      params: {half_angle: 2.30383461, samples: 2641}
       overrides: {name: lidar_rear, topic: lidar/rear}
   imu:
     - variant: vectornav

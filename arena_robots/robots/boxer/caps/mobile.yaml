@@ -24,7 +24,7 @@ planar:
   acceleration: {linear: 1.0, lateral: .inf, angular: 2.0}
   gain: {linear: 1.0, lateral: 1.0, angular: 1.0}
   lag: 0.0
-  traction: 0.98
+  traction: 9.81
   pivot: -0.1503
   timeout: 0.25
 

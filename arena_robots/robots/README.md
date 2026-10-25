@@ -50,6 +50,14 @@ of the rendered URDF that the entry's `sensor:` key names, or its `name` when th
 an element counts as planar when it only declares a `laserscan`. Otherwise it marks without
 clearing and its obstacles expire after the layer's `voxel_decay`.
 
+Every gz `<sensor>` sits on its `<gazebo reference>` link with an identity `<pose>`, and the
+`frame` of each `sensors:` entry names that link. A camera's reference link also needs a REP-103
+optical child link at zero offset, named `<reference>_optical_frame` with a trailing `_frame` of
+the reference dropped. Isaac stamps image,
+depth and point cloud messages in the optical frame, Gazebo and MuJoCo in the reference link,
+and the voxel layer poses a camera's clearing frustum in the reference link.
+`tests/test_sensor_geometry.py` checks this for every robot and camera component.
+
 ### `caps/`: capability declarations
 
 Each `caps/<cap>.yaml` declares one capability the robot physically has. **File
@@ -77,7 +85,7 @@ A robot has exactly one mobile base by construction. All robot-physical
 primitives live at top level; adapter sub-blocks are reserved for
 adapter-specific wiring only. `actions` and `laser` are top-level fields. The
 optional `nav2:` sub-block carries nav2-only wiring such as
-`global_observation`. The global planner's settings come from the selected
+`global_observation` and `local_observation` (the cloud sources' `min_obstacle_height` and `max_obstacle_height`, 0.1 and 0.8 m by default). The global planner's settings come from the selected
 planner config.
 
 ```yaml
@@ -195,6 +203,10 @@ plus whichever controller drives the robot (e.g.
 for an arm). See [`husky/control.yaml`](husky/control.yaml) for a diff-drive
 example and [`rbkairos_plus/control.yaml`](rbkairos_plus/control.yaml) for an
 arm-extended example.
+
+Every simulator spawns a joint at the `initial_value` of its ros2_control
+position state interface, so a legged robot's `urdf/base_hw/<name>.ros2_control.urdf`
+carries its standing pose there (see [`go1`](go1/urdf/base_hw/go1.ros2_control.urdf)).
 
 ### `mappings.yaml`
 

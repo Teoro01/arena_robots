@@ -4,17 +4,23 @@
   <xacro:macro name="a1_leg_control" params="leg prefix">
     <joint name="${prefix}${leg}_hip_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="${prefix}${leg}_thigh_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">1.0472</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="${prefix}${leg}_calf_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">-2.0944</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
   </xacro:macro>

@@ -46,8 +46,8 @@
     <xacro:property name="thigh_torque_max" value="23.7"/>
     <xacro:property name="calf_max" value="-48"/>
     <xacro:property name="calf_min" value="-156"/>
-    <xacro:property name="calf_velocity_max" value="30.1"/>
-    <xacro:property name="calf_torque_max" value="23.7"/>
+    <xacro:property name="calf_velocity_max" value="20.06"/>
+    <xacro:property name="calf_torque_max" value="35.55"/>
 
     <!-- dynamics inertial value        total 12.84kg -->
     <!-- trunk -->
