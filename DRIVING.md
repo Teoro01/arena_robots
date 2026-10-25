@@ -84,8 +84,9 @@ surface for agents. `python3 -m arena_mcp ls robots` lists its tools.
 - Offline, without ROS: the robot catalog from `RobotIdentifier`, one model's
   resolved definition (caps, limits, footprint, arm poses and gestures, default
   sensors, task endpoints and the bringups that serve them, assembly, power
-  profile) and a validation that runs `arena feature robots check` plus
-  definition checks as structured findings.
+  profile), a validation that runs `arena feature robots check` plus
+  definition checks as structured findings, and a job that runs
+  `arena feature robots check --sim` for a wedged, weak or ok verdict per robot.
 - Live, in a running env: the fleet from `state/robots` with the task actions
   each robot serves right now (read from the ROS graph), goto, reach and
   gesture goals, velocity commands, task pose and odometry, sensor topics,

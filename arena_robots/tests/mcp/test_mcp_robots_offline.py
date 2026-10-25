@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -139,3 +140,13 @@ def test_check_of_jackal_runs_the_cli_and_reports_no_definition_errors():
     assert report["models"] == ["jackal"]
     assert [finding for finding in report["findings"] if finding["check"] != "mesh_uri"] == []
     assert all(finding["robot"] == "jackal" or "/" in finding["robot"] for finding in report["findings"])
+
+
+def test_preflight_needs_models_or_all_and_names_the_known_models():
+    with pytest.raises(ToolError, match="not both or neither"):
+        asyncio.run(mcp.robots_preflight())
+    with pytest.raises(ToolError, match="not both or neither"):
+        asyncio.run(mcp.robots_preflight(["jackal"], all_models=True))
+    with pytest.raises(ToolError, match="unknown robot models: ghost") as unknown:
+        asyncio.run(mcp.robots_preflight(["ghost"]))
+    assert "jackal" in unknown.value.hint

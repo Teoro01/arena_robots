@@ -419,6 +419,24 @@ def robots_check(
     }
 
 
+@domain.tool(destructive=True)
+async def robots_preflight(
+    models: Annotated[list[str] | None, Field(description="robot models to drive in the simulator, each needs its submodules checked out")] = None,
+    all_models: Annotated[bool, Field(description="every ready robot instead of names")] = False,
+    sim: Annotated[str | None, Field(description="sim:= launch arg")] = None,
+    lanes: Annotated[int | None, Field(description="spread the robots over this many lanes, each in a pool fork", ge=1)] = None,
+) -> dict[str, Any]:
+    """Start `arena feature robots check --sim` as a job, a wedged, weak or ok verdict per robot."""
+    if all_models == bool(models):
+        raise ToolError("pass robot models or all_models=true, not both or neither", hint="robots_catalog names them")
+    unknown = sorted(set(models or ()) - set(_models()))
+    if unknown:
+        raise ToolError(f"unknown robot models: {', '.join(unknown)}", hint=f"models: {', '.join(_models())}")
+    argv = ["--sim", *(["--all"] if all_models else list(models or ())), *([f"sim:={sim}"] if sim else []), *(["--lanes", str(lanes)] if lanes else [])]
+    job = await cli.job("preflight", "robots check " + " ".join(argv), "feature", "robots", "check", *argv)
+    return {"command": "arena feature robots check " + " ".join(argv), "job": JOBS.get(job.id).as_dict()}
+
+
 async def _member(env_id: int | None, robot: str | None) -> dict[str, Any]:
     ns = await robot_ns(env_id, robot)
     for entry in await fleet(env_id):

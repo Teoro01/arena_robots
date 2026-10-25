@@ -26,6 +26,7 @@ arena feature robots add <name...>      # fetch robot's submodules
 arena feature robots add --all          # fetch every robot
 arena feature robots rm [-f] <name...>  # deinit robot's submodules (-f: shared paths too)
 arena feature robots check [--all]      # verify package:// URIs resolve
+arena feature robots check --sim <name...|--all> [sim:=...]  # drive each robot through map_empty's preflight scenario, verdict wedged/weak/ok
 arena feature robots update             # refresh initialized submodules
 ```
 
