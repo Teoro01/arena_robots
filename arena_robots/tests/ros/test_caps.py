@@ -63,6 +63,30 @@ class TestMobileSpec:
         assert spec.radius == pytest.approx(0.3)
         assert spec.is_holonomic is True
 
+    def test_climbs_defaults_to_no_stair_kind(self, caps_dir):
+        from arena_robots.caps import MobileSpec
+
+        assert MobileSpec(path=caps_dir / "mobile.yaml", raw={}).climbs == frozenset()
+
+    def test_climbs_lists_stair_kinds(self, caps_dir):
+        from arena_robots.caps import MobileSpec
+
+        assert MobileSpec(path=caps_dir / "mobile.yaml", raw={"climbs": ["stairs", "escalator"]}).climbs == frozenset({"stairs", "escalator"})
+
+    @pytest.mark.parametrize("climbs", [["ladder"], "stairs"])
+    def test_climbs_rejects_unknown_kinds_and_scalars(self, caps_dir, climbs):
+        from arena_robots.caps import MobileSpec
+
+        with pytest.raises(ValueError, match="climbs"):
+            _ = MobileSpec(path=caps_dir / "mobile.yaml", raw={"climbs": climbs}).climbs
+
+    def test_legged_robots_climb_stairs(self):
+        from arena_robots.caps import RobotCaps
+
+        robots = Path(__file__).resolve().parents[2] / "robots"
+        for name in ("go1", "a1"):
+            assert RobotCaps(caps_dir=robots / name / "caps").mobile.climbs == frozenset({"stairs"})
+
     def test_real_minimal_yaml_load(self, tmp_path: Path):
         from arena_robots.caps import RobotCaps
 

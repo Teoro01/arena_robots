@@ -2,6 +2,7 @@ odom_frame: odom
 sensor_frame: lidar
 radius: 0.30
 is_holonomic: true
+climbs: [stairs]
 
 footprint: [[0.16, 0.11], [0.16, -0.11], [-0.16, -0.11], [-0.16, 0.11]]
 footprint_padding: 0.19

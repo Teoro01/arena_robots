@@ -93,6 +93,7 @@ odom_frame: odom
 sensor_frame: base_scan
 radius: 0.5
 is_holonomic: false
+climbs: [stairs]              # optional, default []
 
 footprint: [[0.5, 0.35], [0.5, -0.35], [-0.5, -0.35], [-0.5, 0.35]]
 footprint_padding: 0.1        # optional
@@ -137,6 +138,11 @@ for every robot: per-axis velocity bounds, acceleration and gain, a first-order
 `lag`, a `traction` cap on planar acceleration, the `pivot` x the body turns
 about and the command `timeout`. It is the drive's envelope, not the planner's,
 so it can exceed `velocity_limits`.
+
+`climbs` lists the world stair kinds (`stairs`, `escalator`) the base can
+drive through. Cross-level routing sends the robot through the boarding half of
+a stair only when its kind is listed, and an explicit `via` naming a stair the
+robot does not climb is an error. `go1` and `a1` climb stairs.
 
 #### `caps/arm.yaml`, `caps/lift.yaml`, `caps/gripper.yaml`: dict-keyed
 
