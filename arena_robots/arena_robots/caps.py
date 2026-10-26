@@ -585,6 +585,12 @@ class GripperSpec(InstanceSpec):
             raise ValueError(f"{self.path}: gripper '{self.name}' missing 'controller'")
         return str(v)
 
+    @property
+    def positions(self) -> dict[str, float]:
+        v = self.raw.get('positions')
+        if v is None or not isinstance(v, dict):
+            raise ValueError(f"{self.path}: gripper '{self.name}' missing 'positions'")
+        return {str(k): float(val) for k, val in v.items()}
 
 _INSTANCE_CLASSES: dict[str, type[InstanceSpec]] = {
     'arm': ArmSpec,
