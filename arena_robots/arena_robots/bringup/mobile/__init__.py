@@ -8,6 +8,13 @@ def _load_nav2() -> type[Bringup]:
     return Nav2Bringup
 
 
+@BRINGUPS["mobile"].register("meshnav")
+def _load_meshnav() -> type[Bringup]:
+    from .meshnav import MeshNavBringup
+
+    return MeshNavBringup
+
+
 @BRINGUPS["mobile"].register("test-collision")
 def _load_test_collision() -> type[Bringup]:
     from .test_collision import TestCollisionBringup
