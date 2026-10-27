@@ -4,7 +4,7 @@ prefix: ""
 mounts:
   top:
     parent: trunk
-    xyz: [0.0, 0.0, 0.10]
+    xyz: [0.0, 0.0, 0.096]
     rpy: [0, 0, 0]
     accepts: [lidar]
     frame: lidar
