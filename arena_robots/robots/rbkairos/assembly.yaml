@@ -36,7 +36,7 @@ mounts:
     rpy: [0, -1.5708, 1.5708]
     accepts: [camera]
     frame: wrist_camera
-  gripper:
+  gripper_mount:
     parent: "@arm_mount:tip"
     xyz: [0, 0, 0]
     rpy: [0, 0, 0]
