@@ -35,7 +35,7 @@ acceleration_limits:
 planar:
   velocity: {linear: [-2.0, 2.0], lateral: [0.0, 0.0], angular: [-4.0, 4.0]}
   acceleration: {linear: 20.0, lateral: .inf, angular: 25.0}
-  gain: {linear: 1.0, lateral: 1.0, angular: 1.36}
+  gain: {linear: 1.0, lateral: 1.0, angular: 1.0}
   lag: 0.0
   traction: 7.85
   pivot: 0.131
