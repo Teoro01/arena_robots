@@ -325,6 +325,7 @@ class CapConfig:
 
 
 INFLATION_MARGIN = 0.4
+CLIMBABLE = ('stairs', 'escalator')
 
 
 @attrs.define(slots=False)
@@ -348,6 +349,14 @@ class MobileSpec(CapConfig):
     @property
     def is_holonomic(self) -> bool:
         return bool(self.raw.get('is_holonomic', False))
+
+    @property
+    def climbs(self) -> frozenset[str]:
+        """Stairs kinds the base can drive through, a subset of CLIMBABLE."""
+        v = self.raw.get('climbs') or []
+        if not isinstance(v, list) or not set(v) <= set(CLIMBABLE):
+            raise ValueError(f"{self.path}: 'climbs' must be a list among {list(CLIMBABLE)}; got {v!r}")
+        return frozenset(v)
 
     @property
     def polygons_dict(self) -> dict[str, PolygonSpec]:

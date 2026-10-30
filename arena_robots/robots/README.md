@@ -93,6 +93,7 @@ odom_frame: odom
 sensor_frame: base_scan
 radius: 0.5
 is_holonomic: false
+climbs: [stairs]              # optional, default []
 
 footprint: [[0.5, 0.35], [0.5, -0.35], [-0.5, -0.35], [-0.5, 0.35]]
 footprint_padding: 0.1        # optional
@@ -124,6 +125,21 @@ planar:
 
 nav2:                      # optional, nav2-only wiring
   global_observation: {...}
+
+meshnav:                   # optional, meshnav-only wiring
+  max_step: 0.2            # default 0.2 when climbs lists stairs, else 0.1
+  max_slope: 1.3           # rad, default 1.3 when climbs lists stairs, else 0.35
+  inscribed_radius: 0.21   # default inscribed circle of the padded footprint, else radius
+  inflation_radius: 0.71   # default inscribed_radius + 0.5
+  obstacles: true          # default true when the robot has a laserscan or pointcloud sensor
+  robot_height: 0.7        # m, returns higher above the walking surface are ignored
+  min_obstacle_height: 0.1 # m, returns lower above the walking surface are ground
+  obstacle_range: 11.0     # m from the sensor, default caps laser.range minus 1, else 9
+  obstacle_decay: 1.0      # s a sensor's obstacles outlive its scan
+  planner_frequency: 1.0   # Hz, MBF replans at it while a goal runs
+  planner: dijkstra        # or cvp, MBF's fast marching planner
+  resolution: 0.1          # grid spacing of the nav mesh
+  params: {}               # merged over config/meshnav/meshnav.yaml
 ```
 
 `velocity_limits` and `acceleration_limits` flow into nav2 controller configs
@@ -137,6 +153,24 @@ for every robot: per-axis velocity bounds, acceleration and gain, a first-order
 `lag`, a `traction` cap on planar acceleration, the `pivot` x the body turns
 about and the command `timeout`. It is the drive's envelope, not the planner's,
 so it can exceed `velocity_limits`.
+
+`climbs` lists the world stair kinds (`stairs`, `escalator`) the base can
+drive through. Cross-level routing sends the robot through the boarding half of
+a stair only when its kind is listed, and an explicit `via` naming a stair the
+robot does not climb is an error. `go1` and `a1` climb stairs.
+
+`meshnav:` sets the traversal limits of the meshnav adapter: the largest height
+step and the steepest slope the base crosses, and the inflation around lethal
+vertices. The obstacle layer reads `meshnav/obstacles`, published by the
+`meshnav_obstacles` node from every range sensor (a sensor's point cloud when it
+has one, else its scan) in the odom frame. A return is an obstacle when it stands
+`min_obstacle_height` to `robot_height` above the highest mesh surface below it
+and no mesh surface around it lies between `min_obstacle_height` under and
+`max_step` over it, so floors, ramps, stair treads, risers and escalator belts are
+ground on every level. Returns beyond `obstacle_range` or within the footprint's
+outer radius are dropped. Velocity limits cap the mesh controller. Goals go to
+MBF's Dijkstra mesh planner, `planner: cvp` picks the fast marching planner, whose
+path back-tracking fails across some stair terraces.
 
 #### `caps/arm.yaml`, `caps/lift.yaml`, `caps/gripper.yaml`: dict-keyed
 
@@ -203,6 +237,12 @@ plus whichever controller drives the robot (e.g.
 for an arm). See [`husky/control.yaml`](husky/control.yaml) for a diff-drive
 example and [`rbkairos_plus/control.yaml`](rbkairos_plus/control.yaml) for an
 arm-extended example.
+
+An optional sibling `control.<sim>.yaml` (`sim` a `SimSimulator` value such as
+`gazebo`, `isaac` or `mujoco`) overlays `control.yaml` key by key in that
+simulator only, for a value the simulator's physics needs and the real robot
+does not. [`jackal/control.gazebo.yaml`](jackal/control.gazebo.yaml) sets the
+`wheel_separation_multiplier` Gazebo's skid steer turns at.
 
 Every simulator spawns a joint at the `initial_value` of its ros2_control
 position state interface, so a legged robot's `urdf/base_hw/<name>.ros2_control.urdf`
