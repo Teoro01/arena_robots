@@ -238,6 +238,12 @@ for an arm). See [`husky/control.yaml`](husky/control.yaml) for a diff-drive
 example and [`rbkairos_plus/control.yaml`](rbkairos_plus/control.yaml) for an
 arm-extended example.
 
+An optional sibling `control.<sim>.yaml` (`sim` a `SimSimulator` value such as
+`gazebo`, `isaac` or `mujoco`) overlays `control.yaml` key by key in that
+simulator only, for a value the simulator's physics needs and the real robot
+does not. [`jackal/control.gazebo.yaml`](jackal/control.gazebo.yaml) sets the
+`wheel_separation_multiplier` Gazebo's skid steer turns at.
+
 Every simulator spawns a joint at the `initial_value` of its ros2_control
 position state interface, so a legged robot's `urdf/base_hw/<name>.ros2_control.urdf`
 carries its standing pose there (see [`go1`](go1/urdf/base_hw/go1.ros2_control.urdf)).
