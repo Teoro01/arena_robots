@@ -1,0 +1,68 @@
+move_base_flex:
+  ros__parameters:
+    planners: [cvp, dijkstra]
+    cvp:
+      type: cvp_mesh_planner/CVPMeshPlanner
+      cost_limit: 0.99
+    dijkstra:
+      type: dijkstra_mesh_planner/DijkstraMeshPlanner
+      cost_limit: 0.99
+    controllers: [mesh_controller]
+    mesh_controller:
+      type: mesh_controller/MeshController
+      ang_vel_factor: 4.0
+      lin_vel_factor: 1.0
+      max_angle: 45.0
+    controller_frequency: 10.0
+    controller_patience: 5.0
+    planner_patience: 5.0
+    planner_max_retries: 3
+    dist_tolerance: 0.2
+    angle_tolerance: 0.25
+    tf_timeout: 3.0
+    mesh_map:
+      mesh_part: /
+      mesh_working_part: mesh
+      layers: [border, height_diff, steepness, static_combination, static_inflation, obstacle, obstacle_inflation, final]
+      default_layer: final
+      edge_cost_factor: 5.0
+      border:
+        type: mesh_layers/BorderLayer
+        border_cost: 1.0
+        threshold: 0.2
+      height_diff:
+        type: mesh_layers/HeightDiffLayer
+        threshold: 0.1
+        radius: 0.15
+      steepness:
+        type: mesh_layers/SteepnessLayer
+        threshold: 0.35
+      static_combination:
+        type: mesh_layers/MaxCombinationLayer
+        inputs: [border, height_diff, steepness]
+      static_inflation:
+        type: mesh_layers/InflationLayer
+        inputs: [static_combination]
+        inscribed_radius: 0.3
+        inflation_radius: 0.8
+        lethal_value: .inf
+        inscribed_value: 0.9
+        repulsive_field: false
+        cost_scaling_factor: 2.0
+      obstacle:
+        type: mesh_layers/ObstacleLayer
+        topic: meshnav/obstacles
+        robot_height: 0.7
+        max_obstacle_dist: 1.0e+9
+      obstacle_inflation:
+        type: mesh_layers/InflationLayer
+        inputs: [obstacle]
+        inscribed_radius: 0.3
+        inflation_radius: 0.8
+        lethal_value: .inf
+        inscribed_value: 0.9
+        repulsive_field: false
+        cost_scaling_factor: 2.0
+      final:
+        type: mesh_layers/MaxCombinationLayer
+        inputs: [static_inflation, obstacle_inflation]
