@@ -601,6 +601,7 @@ class GripperSpec(InstanceSpec):
             raise ValueError(f"{self.path}: gripper '{self.name}' missing 'positions'")
         return {str(k): float(val) for k, val in v.items()}
 
+
 _INSTANCE_CLASSES: dict[str, type[InstanceSpec]] = {
     'arm': ArmSpec,
     'lift': LiftSpec,

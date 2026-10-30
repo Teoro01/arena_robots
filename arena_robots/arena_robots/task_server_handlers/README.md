@@ -35,19 +35,23 @@ In [`task_kinds.py`](../task_kinds.py):
 ```python
 class TaskKind(enum.Enum):
     GOTO_POSE = "goto_pose"
-    FOLLOW_PATH = "follow_path"          # new
+    FOLLOW_PATH = "follow_path"  # new
+
 
 PUBLIC_SUFFIX: dict[TaskKind, str] = {
     TaskKind.GOTO_POSE: "goto_pose",
-    TaskKind.FOLLOW_PATH: "follow_path", # new
+    TaskKind.FOLLOW_PATH: "follow_path",  # new
 }
+
 
 def action_type(tk: TaskKind) -> type:
     if tk is TaskKind.GOTO_POSE:
         from arena_robots_msgs.action import GotoPose
+
         return GotoPose
-    if tk is TaskKind.FOLLOW_PATH:       # new
+    if tk is TaskKind.FOLLOW_PATH:  # new
         from arena_robots_msgs.action import FollowPath
+
         return FollowPath
     raise KeyError(tk)
 ```
@@ -95,7 +99,9 @@ in an existing bringup is one entry in that dict:
 ```python
 def _load_follow_path_nav2() -> type:
     from arena_robots.task_server_handlers.follow_path.nav2 import FollowPathHandlerNav2
+
     return FollowPathHandlerNav2
+
 
 @BringupMeta.attach(requires={"mobile"}, cap="mobile")
 class Nav2Bringup(Bringup):
